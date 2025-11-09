@@ -423,6 +423,35 @@ Then RUN the tests to verify they pass. Commit test files and results."""
 
         return True
 
+    def _check_workspace_cleanliness(self) -> tuple[bool, list[str]]:
+        """
+        Check for common test artifacts and temporary files
+
+        Returns:
+            (is_clean, list_of_issues)
+        """
+        issues = []
+        files = self.git.list_files()
+
+        # Common test/temp file patterns
+        suspicious_patterns = [
+            ('test.html', 'Test HTML file'),
+            ('temp.', 'Temporary file'),
+            ('debug.', 'Debug file'),
+            ('old_', 'Old version file'),
+            ('.tmp', 'Temporary file'),
+            ('scratch', 'Scratch file'),
+            ('hello', 'Test/demo file (like hello.html, hello.txt)'),
+        ]
+
+        for file in files:
+            file_lower = file.lower()
+            for pattern, description in suspicious_patterns:
+                if pattern in file_lower and not file.startswith('.'):  # Ignore dotfiles
+                    issues.append(f"  - {file} (suspicious: {description})")
+
+        return (len(issues) == 0, issues)
+
     def _product_owner_review(self, user_story: str, result: WorkflowResult) -> str:
         """
         Product Owner reviews the completed work
@@ -439,6 +468,14 @@ Then RUN the tests to verify they pass. Commit test files and results."""
 
         # Stay on tester branch for review
         self.git.checkout_branch(TESTER_BRANCH)
+
+        # Check for suspicious files before PO review
+        is_clean, issues = self._check_workspace_cleanliness()
+        if not is_clean:
+            print("\n⚠️  WARNING: Suspicious files detected in workspace:")
+            for issue in issues:
+                print(issue)
+            print("These may be test artifacts that should be removed.\n")
 
         po = ClaudeCodeAgent("ProductOwner", self.workspace, PRODUCT_OWNER_PROMPT)
 
