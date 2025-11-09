@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from claude_agent import ClaudeCodeAgent
 from git_manager import GitManager
+from logger import WorkflowLogger
 from agents import (
     ARCHITECT_PROMPT,
     SECURITY_PROMPT,
@@ -72,6 +73,9 @@ class Orchestrator:
         # Initialize git manager
         self.git = GitManager(self.workspace)
 
+        # Logger will be initialized per workflow
+        self.logger = None
+
         # Initialize workspace
         self._initialize_workspace()
 
@@ -99,6 +103,10 @@ class Orchestrator:
         Returns:
             WorkflowResult with execution details
         """
+        # Initialize logger for this workflow
+        self.logger = WorkflowLogger()
+        self.logger.log_user_story(user_story)
+
         print("\n" + "="*60)
         print("📋 STARTING NEW USER STORY")
         print("="*60)
@@ -106,12 +114,14 @@ class Orchestrator:
         print(f"\n🔄 Workflow: Architect → Security → Tester → Product Owner")
         print(f"⏱️  Expected time: 2-5 minutes")
         print(f"💰 Expected cost: $0.06-0.15")
+        print(f"📝 Logs: logs/workflow_{self.logger.workflow_id}.log")
         print("="*60 + "\n")
 
         result = WorkflowResult()
         result.user_story = user_story
 
-        # Clean up old workflow branches if they exist
+        # Clean up old workflow branches ONLY on first iteration (not on revisions)
+        # This ensures each NEW task starts fresh from main
         self._cleanup_workflow_branches()
 
         # Execute workflow with revision loop
@@ -123,11 +133,19 @@ class Orchestrator:
                 print("="*60 + "\n")
                 result.revision_count = revision
 
+                # Log revision
+                self.logger.log_revision(revision, result.po_decision or "PO requested changes")
+
+                # On revision, only clean up downstream branches (security, tester)
+                # Keep architect-branch so the Architect can iterate on existing code
+                self._cleanup_downstream_branches()
+
             # Execute sequential agents (branches created dynamically during execution)
             success = self._execute_workflow_sequence(user_story, result, is_revision=revision > 0)
 
             if not success:
                 print("\n❌ Workflow failed during execution")
+                self.logger.log_workflow_complete("failed")
                 return result
 
             # Product Owner review
@@ -136,23 +154,30 @@ class Orchestrator:
             if po_decision == "APPROVE":
                 result.approved = True
                 print("\n✅ Product Owner APPROVED the implementation!")
+                self.logger.log_decision("APPROVE", result.po_decision)
 
                 # Merge to main if configured
                 if WORKFLOW_CONFIG['auto_merge_on_approval']:
                     print("\n🔀 Merging approved work to main branch...")
                     if self.git.merge_workflow_to_main():
                         print("✅ Successfully merged to main!")
+                        self.logger.logger.info("✅ Merged to main branch")
                     else:
                         print("⚠️  Merge failed - manual intervention needed")
+                        self.logger.log_error("Merge to main failed")
 
+                self.logger.log_workflow_complete("approved")
                 return result
 
             elif po_decision == "REJECT":
                 print("\n❌ Product Owner REJECTED the implementation")
+                self.logger.log_decision("REJECT", result.po_decision)
                 result.errors.append(f"Rejected after {revision} revision(s)")
+                self.logger.log_workflow_complete("rejected")
                 return result
 
             elif po_decision == "REVISE":
+                self.logger.log_decision("REVISE", result.po_decision)
                 if revision < max_revisions:
                     print(f"\n🔄 Product Owner requested REVISIONS ({revision + 1}/{max_revisions})")
                     # Continue to next iteration
@@ -160,8 +185,10 @@ class Orchestrator:
                 else:
                     print(f"\n⚠️  Maximum revisions ({max_revisions}) reached")
                     result.errors.append(f"Max revisions reached without approval")
+                    self.logger.log_workflow_complete("max_revisions_reached")
                     return result
 
+        self.logger.log_workflow_complete("completed")
         return result
 
     def _execute_workflow_sequence(
@@ -185,15 +212,34 @@ class Orchestrator:
         print("\n🏗️  PHASE 1: ARCHITECT")
         print("="*60)
 
-        # Create architect branch from main (fresh for each workflow)
-        self.git.checkout_branch(MAIN_BRANCH)
-        self.git.create_branch(ARCHITECT_BRANCH, from_branch=MAIN_BRANCH)
+        # On revision, preserve existing architect-branch with code
+        # On first iteration, create fresh architect-branch from main
+        if is_revision:
+            # CRITICAL: Use existing architect-branch so Architect can iterate
+            if self.git.branch_exists(ARCHITECT_BRANCH):
+                self.git.checkout_branch(ARCHITECT_BRANCH)
+                print(f"✅ Using existing '{ARCHITECT_BRANCH}' for revision")
+            else:
+                # Fallback: create from main if somehow missing
+                print(f"⚠️  Architect branch missing, creating from main")
+                self.git.checkout_branch(MAIN_BRANCH)
+                self.git.create_branch(ARCHITECT_BRANCH, from_branch=MAIN_BRANCH)
+        else:
+            # First iteration: create fresh from main
+            self.git.checkout_branch(MAIN_BRANCH)
+            self.git.create_branch(ARCHITECT_BRANCH, from_branch=MAIN_BRANCH)
 
         architect = ClaudeCodeAgent("Architect", self.workspace, ARCHITECT_PROMPT)
 
         arch_task = user_story
         if is_revision and result.po_decision:
-            arch_task = f"""REVISION REQUEST
+            # Get list of files for context
+            files = self.git.list_files()
+            files_context = f"\n\nExisting files in your implementation:\n" + "\n".join(f"- {f}" for f in files[:20])
+            if len(files) > 20:
+                files_context += f"\n... and {len(files) - 20} more files"
+
+            arch_task = f"""REVISION REQUEST - IMPROVE YOUR EXISTING CODE
 
 Original User Story:
 {user_story}
@@ -201,17 +247,32 @@ Original User Story:
 Product Owner Feedback:
 {result.po_decision}
 
-Please address the feedback and improve the implementation."""
+IMPORTANT: You have already implemented code for this story. The files are still in your working directory.
+Review your existing implementation, understand the Product Owner's feedback, and IMPROVE it.
+Do NOT start from scratch - build upon what you already created.
+{files_context}
 
+Please address the feedback and improve your implementation."""
+
+        self.logger.log_agent_start("Architect", arch_task)
         arch_result = architect.execute_task(arch_task)
+        self.logger.log_agent_end("Architect", arch_result)
         architect.print_result(arch_result)
 
         if not arch_result['success']:
             result.errors.append(f"Architect failed: {arch_result.get('error')}")
+            self.logger.log_error(f"Architect failed: {arch_result.get('error')}")
             return False
 
         result.architect_result = arch_result
         result.add_cost(arch_result.get('cost_usd', 0.0))
+
+        # VALIDATION GATE: Ensure Architect completed work
+        if not self.git.branch_has_commits(ARCHITECT_BRANCH, MAIN_BRANCH):
+            error_msg = "❌ Cannot proceed: Architect hasn't committed any code"
+            print(f"\n{error_msg}")
+            result.errors.append(error_msg)
+            return False
 
         # Phase 2: Security Review
         print("\n🔒 PHASE 2: SECURITY")
@@ -234,15 +295,25 @@ Identify and fix any security vulnerabilities:
 
 Edit files directly to add security improvements, then commit your changes."""
 
+        self.logger.log_agent_start("Security", sec_task)
         sec_result = security.execute_task(sec_task)
+        self.logger.log_agent_end("Security", sec_result)
         security.print_result(sec_result)
 
         if not sec_result['success']:
             result.errors.append(f"Security failed: {sec_result.get('error')}")
+            self.logger.log_error(f"Security failed: {sec_result.get('error')}")
             return False
 
         result.security_result = sec_result
         result.add_cost(sec_result.get('cost_usd', 0.0))
+
+        # VALIDATION GATE: Ensure Security completed work
+        if not self.git.branch_has_commits(SECURITY_BRANCH, ARCHITECT_BRANCH):
+            error_msg = "❌ Cannot proceed: Security hasn't committed any changes"
+            print(f"\n{error_msg}")
+            result.errors.append(error_msg)
+            return False
 
         # Phase 3: Testing
         print("\n🧪 PHASE 3: TESTER")
@@ -263,11 +334,14 @@ Write actual, runnable tests covering:
 
 Then RUN the tests to verify they pass. Commit test files and results."""
 
+        self.logger.log_agent_start("Tester", test_task)
         test_result = tester.execute_task(test_task)
+        self.logger.log_agent_end("Tester", test_result)
         tester.print_result(test_result)
 
         if not test_result['success']:
             result.errors.append(f"Tester failed: {test_result.get('error')}")
+            self.logger.log_error(f"Tester failed: {test_result.get('error')}")
             return False
 
         result.tester_result = test_result
@@ -308,7 +382,9 @@ Your response MUST start with: DECISION: [APPROVE|REVISE|REJECT]
 
 Provide detailed reasoning and specific feedback if requesting revisions."""
 
+        self.logger.log_agent_start("ProductOwner", review_task)
         po_result = po.execute_task(review_task)
+        self.logger.log_agent_end("ProductOwner", po_result)
         po.print_result(po_result)
 
         result.add_cost(po_result.get('cost_usd', 0.0))
@@ -349,12 +425,32 @@ Provide detailed reasoning and specific feedback if requesting revisions."""
 
         # Delete branches in reverse order (tester -> security -> architect)
         for branch in [TESTER_BRANCH, SECURITY_BRANCH, ARCHITECT_BRANCH]:
-            result = self.git._run_git("branch", "--list", branch, check=False)
-            if result.stdout.strip():
-                self.git._run_git("branch", "-D", branch)
-                print(f"  Deleted '{branch}'")
+            if self.git.branch_exists(branch):
+                self.git.delete_branch(branch, force=True)
 
         print("✅ Cleanup complete\n")
+
+    def _cleanup_downstream_branches(self) -> None:
+        """
+        Clean up downstream branches for a revision iteration
+
+        ONLY deletes security-branch and tester-branch.
+        Preserves architect-branch so Architect can iterate on existing code.
+
+        This is called during revisions to allow Security and Tester to
+        regenerate their work from the revised Architect implementation.
+        """
+        print("\n🧹 Cleaning downstream branches for revision...")
+
+        # Ensure we're on main before deleting branches
+        self.git.checkout_branch(MAIN_BRANCH)
+
+        # Only delete security and tester - keep architect!
+        for branch in [TESTER_BRANCH, SECURITY_BRANCH]:
+            if self.git.branch_exists(branch):
+                self.git.delete_branch(branch, force=True)
+
+        print("✅ Downstream branches cleared (architect-branch preserved)\n")
 
     def get_workspace_status(self) -> Dict[str, Any]:
         """

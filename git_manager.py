@@ -280,6 +280,86 @@ class GitManager:
             return result.stdout.strip().split('\n') if result.stdout.strip() else []
         return []
 
+    def branch_exists(self, branch_name: str) -> bool:
+        """
+        Check if a branch exists
+
+        Args:
+            branch_name: Name of the branch to check
+
+        Returns:
+            True if branch exists, False otherwise
+        """
+        result = self._run_git("branch", "--list", branch_name, check=False)
+        return bool(result.stdout.strip())
+
+    def branch_has_commits(self, branch_name: str, since_branch: str = "main") -> bool:
+        """
+        Check if a branch has commits beyond the base branch
+
+        Args:
+            branch_name: Name of the branch to check
+            since_branch: Base branch to compare against (default: main)
+
+        Returns:
+            True if branch has commits beyond base, False otherwise
+        """
+        if not self.branch_exists(branch_name):
+            return False
+
+        try:
+            result = self._run_git("rev-list", f"{since_branch}..{branch_name}", check=False)
+            return bool(result.stdout.strip())
+        except Exception as e:
+            print(f"⚠️  Error checking branch commits: {e}")
+            return False
+
+    def delete_branch(self, branch_name: str, force: bool = False) -> bool:
+        """
+        Delete a branch
+
+        Args:
+            branch_name: Name of the branch to delete
+            force: Force delete even if not merged
+
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        if not self.branch_exists(branch_name):
+            return False
+
+        try:
+            flag = "-D" if force else "-d"
+            self._run_git("branch", flag, branch_name)
+            print(f"✅ Deleted branch '{branch_name}'")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Failed to delete branch '{branch_name}': {e.stderr}")
+            return False
+
+    def list_files(self, branch_name: Optional[str] = None) -> List[str]:
+        """
+        List all tracked files in a branch
+
+        Args:
+            branch_name: Branch to list files from (default: current branch)
+
+        Returns:
+            List of file paths
+        """
+        try:
+            if branch_name:
+                result = self._run_git("ls-tree", "-r", "--name-only", branch_name, check=False)
+            else:
+                result = self._run_git("ls-files", check=False)
+
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip().split('\n')
+            return []
+        except Exception as e:
+            print(f"⚠️  Error listing files: {e}")
+            return []
+
     def __repr__(self) -> str:
         current = self.get_current_branch()
         return f"GitManager(workspace='{self.workspace}', current_branch='{current}')"

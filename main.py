@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI Scrum Master v2.0 - Main CLI
+AI Scrum Master v2.1 - Main CLI
 
 Multi-agent development system powered by Claude Code
 """
@@ -14,7 +14,7 @@ def print_banner():
     """Print welcome banner"""
     print("""
 ╔═══════════════════════════════════════════════════════════╗
-║              AI SCRUM MASTER v2.0                         ║
+║              AI SCRUM MASTER v2.1                         ║
 ║          Claude Code Multi-Agent System                   ║
 ╚═══════════════════════════════════════════════════════════╝
 """)

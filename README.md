@@ -1,6 +1,15 @@
-# AI Scrum Master v2.0 - Claude Code Edition
+# AI Scrum Master v2.1 - Claude Code Edition
 
 **Multi-Agent Development System powered by Claude Code CLI**
+
+## What's New in v2.1?
+
+**Critical Bug Fixes:**
+- Fixed revision loop - Architect now properly iterates on existing code instead of starting from scratch
+- Added comprehensive logging system for complete workflow visibility
+- Added validation gates to catch agent failures early
+
+See [CHANGELOG.md](CHANGELOG.md) for complete details.
 
 ## What's New in v2.0?
 
