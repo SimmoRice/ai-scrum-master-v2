@@ -80,11 +80,11 @@ class Orchestrator:
         print("\n🚀 Initializing AI Scrum Master Workspace")
         print("="*60)
 
-        # Initialize git repository
+        # Initialize git repository (creates main branch with initial commit)
         self.git.initialize_repository()
 
-        # Set up workflow branches
-        self.git.setup_workflow_branches()
+        # Note: Workflow branches are created dynamically during workflow execution
+        # This ensures each branch builds on the previous agent's actual work
 
         print("="*60)
         print("✅ Workspace ready!\n")
@@ -108,8 +108,8 @@ class Orchestrator:
         result = WorkflowResult()
         result.user_story = user_story
 
-        # Reset workflow branches for clean start
-        self.git.reset_workflow_branches()
+        # Clean up old workflow branches if they exist
+        self._cleanup_workflow_branches()
 
         # Execute workflow with revision loop
         max_revisions = WORKFLOW_CONFIG['max_revisions']
@@ -120,7 +120,7 @@ class Orchestrator:
                 print("="*60 + "\n")
                 result.revision_count = revision
 
-            # Execute sequential agents
+            # Execute sequential agents (branches created dynamically during execution)
             success = self._execute_workflow_sequence(user_story, result, is_revision=revision > 0)
 
             if not success:
@@ -181,7 +181,10 @@ class Orchestrator:
         # Phase 1: Architect Implementation
         print("\n🏗️  PHASE 1: ARCHITECT")
         print("="*60)
-        self.git.checkout_branch(ARCHITECT_BRANCH)
+
+        # Create architect branch from main (fresh for each workflow)
+        self.git.checkout_branch(MAIN_BRANCH)
+        self.git.create_branch(ARCHITECT_BRANCH, from_branch=MAIN_BRANCH)
 
         architect = ClaudeCodeAgent("Architect", self.workspace, ARCHITECT_PROMPT)
 
@@ -210,7 +213,9 @@ Please address the feedback and improve the implementation."""
         # Phase 2: Security Review
         print("\n🔒 PHASE 2: SECURITY")
         print("="*60)
-        self.git.checkout_branch(SECURITY_BRANCH)
+
+        # Create security branch from architect (inherits Architect's work)
+        self.git.create_branch(SECURITY_BRANCH, from_branch=ARCHITECT_BRANCH)
 
         security = ClaudeCodeAgent("Security", self.workspace, SECURITY_PROMPT)
 
@@ -239,7 +244,9 @@ Edit files directly to add security improvements, then commit your changes."""
         # Phase 3: Testing
         print("\n🧪 PHASE 3: TESTER")
         print("="*60)
-        self.git.checkout_branch(TESTER_BRANCH)
+
+        # Create tester branch from security (inherits Architect + Security's work)
+        self.git.create_branch(TESTER_BRANCH, from_branch=SECURITY_BRANCH)
 
         tester = ClaudeCodeAgent("Tester", self.workspace, TESTER_PROMPT)
 
@@ -324,6 +331,27 @@ Provide detailed reasoning and specific feedback if requesting revisions."""
             print("❌ Product Owner review failed")
             result.errors.append("PO review failed")
             return "REJECT"
+
+    def _cleanup_workflow_branches(self) -> None:
+        """
+        Clean up old workflow branches before starting new task
+
+        Deletes architect, security, and tester branches if they exist.
+        This ensures each workflow starts fresh from main.
+        """
+        print("\n🧹 Cleaning up old workflow branches...")
+
+        # Ensure we're on main before deleting branches
+        self.git.checkout_branch(MAIN_BRANCH)
+
+        # Delete branches in reverse order (tester -> security -> architect)
+        for branch in [TESTER_BRANCH, SECURITY_BRANCH, ARCHITECT_BRANCH]:
+            result = self.git._run_git("branch", "--list", branch, check=False)
+            if result.stdout.strip():
+                self.git._run_git("branch", "-D", branch)
+                print(f"  Deleted '{branch}'")
+
+        print("✅ Cleanup complete\n")
 
     def get_workspace_status(self) -> Dict[str, Any]:
         """
