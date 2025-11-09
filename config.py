@@ -1,7 +1,10 @@
 """
-Configuration for AI Scrum Master v2.0
+Configuration for AI Scrum Master
 """
 from pathlib import Path
+
+# Version
+VERSION = "2.1.0"
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent

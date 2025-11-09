@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI Scrum Master v2.1 - Main CLI
+AI Scrum Master - Main CLI
 
 Multi-agent development system powered by Claude Code
 """
@@ -8,13 +8,14 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from orchestrator import Orchestrator, WorkflowResult
+from config import VERSION
 
 
 def print_banner():
     """Print welcome banner"""
-    print("""
+    print(f"""
 ╔═══════════════════════════════════════════════════════════╗
-║              AI SCRUM MASTER v2.1                         ║
+║              AI SCRUM MASTER v{VERSION:<24}║
 ║          Claude Code Multi-Agent System                   ║
 ╚═══════════════════════════════════════════════════════════╝
 """)
@@ -175,7 +176,7 @@ def main():
         print("  3. You have write permissions to the workspace directory")
         sys.exit(1)
 
-    print("✅ AI Scrum Master v2.0 ready!")
+    print(f"✅ AI Scrum Master v{VERSION} ready!")
     print("Type 'help' for available commands\n")
 
     # Main command loop
