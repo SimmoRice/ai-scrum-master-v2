@@ -20,6 +20,69 @@ def print_banner():
 """)
 
 
+def get_multiline_input(prompt: str = "> ") -> str:
+    r"""
+    Get input from user with multi-line support
+
+    Supports two methods:
+    1. Backslash continuation: Line ending with \ continues to next line
+    2. Double blank line submission: Two empty lines in a row submits
+
+    Args:
+        prompt: The prompt to display
+
+    Returns:
+        Complete user input as a single string
+    """
+    lines = []
+    first_line = True
+    consecutive_blank_lines = 0
+
+    while True:
+        try:
+            if first_line:
+                line = input(prompt).rstrip()
+                first_line = False
+            else:
+                line = input("... ").rstrip()
+
+            # Check for backslash continuation
+            if line.endswith("\\"):
+                # Remove backslash and add line
+                lines.append(line[:-1].rstrip())
+                consecutive_blank_lines = 0
+                continue
+
+            # Track consecutive blank lines
+            if not line:
+                consecutive_blank_lines += 1
+
+                # Two consecutive blank lines = submit (if we have content)
+                if consecutive_blank_lines >= 2 and lines:
+                    # Remove the last blank line we added
+                    if lines and lines[-1] == '':
+                        lines.pop()
+                    break
+
+                # First blank line - add it to preserve formatting
+                if lines:  # Only add blank lines after we have content
+                    lines.append(line)
+                continue
+            else:
+                # Non-blank line resets the counter
+                consecutive_blank_lines = 0
+
+            # Add the line
+            lines.append(line)
+
+        except EOFError:
+            # Ctrl+D pressed - submit what we have
+            break
+
+    # Join all lines with newlines and return
+    return "\n".join(lines)
+
+
 def print_help():
     """Print available commands"""
     print("""
@@ -28,6 +91,15 @@ Available Commands:
   status             - Show current workspace status
   help               - Show this help message
   quit               - Exit the program
+
+Multi-line Input:
+  📋 Paste complex requirements easily!
+
+  Two ways to enter multi-line input:
+  1. Double blank line - Press Enter TWICE on empty lines to submit
+  2. Backslash continuation - End line with \\ to continue
+
+  Single blank lines within your text are preserved!
 
 How it works:
   1. You provide a user story/requirement
@@ -40,11 +112,23 @@ How it works:
      - REJECT → Start over
 
 Examples:
-  > task Build a REST API for managing todos with CRUD operations
+  Single-line (works as before):
+    > task Build a simple calculator web app
 
-  > task Create a calculator web app with HTML, CSS, and JavaScript
+  Multi-line (paste and press Enter TWICE to submit):
+    > task Build a REST API for todos
+    ...
+    ... Requirements:
+    ... - GET /todos - List all
+    ... - POST /todos - Create new
+    ... - PUT /todos/:id - Update
+    ... - DELETE /todos/:id - Delete
+    ...
+    ... (press Enter TWICE on empty lines)
 
-  > task Implement user authentication with JWT tokens and bcrypt
+  Backslash continuation:
+    > task Create user authentication with \\
+    ... JWT tokens and bcrypt hashing
 """)
 
 
@@ -97,7 +181,8 @@ def main():
     # Main command loop
     while True:
         try:
-            user_input = input("> ").strip()
+            # Use multi-line input
+            user_input = get_multiline_input("> ").strip()
 
             if not user_input:
                 continue

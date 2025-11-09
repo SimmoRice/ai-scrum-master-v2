@@ -39,8 +39,29 @@ Type 'help' for available commands
 
 ### Create a Task
 
+**Simple (one-line):**
 ```bash
 > task Build a simple calculator web app with HTML, CSS, and JavaScript
+```
+
+**Multi-line (paste complex requirements):**
+```bash
+> task Build a REST API for todos
+...
+... Requirements:
+... - GET /todos - List all todos
+... - POST /todos - Create new todo
+... - PUT /todos/:id - Update todo
+... - DELETE /todos/:id - Delete todo
+... - Use Express.js and SQLite
+...
+... (press Enter TWICE on empty lines to submit)
+```
+
+**Backslash continuation:**
+```bash
+> task Create user authentication with \
+... JWT tokens and bcrypt hashing
 ```
 
 This will:
