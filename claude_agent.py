@@ -95,48 +95,33 @@ class ClaudeCodeAgent:
             import time
             start_time = time.time()
 
-            # Execute Claude Code as subprocess
+            # Execute Claude Code with live output visible
+            # Don't capture output so we can see what Claude Code is doing in real-time
             result = subprocess.run(
                 cmd,
                 cwd=str(self.workspace),
-                capture_output=True,
                 text=True,
                 timeout=timeout
             )
 
             elapsed = time.time() - start_time
-            print(f"✓ Completed in {elapsed:.1f} seconds")
+            print(f"\n✓ Completed in {elapsed:.1f} seconds")
 
             # Check if execution succeeded
             if result.returncode == 0:
-                # Parse JSON output
-                try:
-                    output = json.loads(result.stdout)
-
-                    # Extract key information
-                    return {
-                        'success': True,
-                        'result': output.get('result', ''),
-                        'output': output,
-                        'session_id': output.get('session_id', ''),
-                        'cost_usd': output.get('total_cost_usd', 0.0),
-                        'num_turns': output.get('num_turns', 0),
-                        'duration_ms': output.get('duration_ms', 0),
-                    }
-                except json.JSONDecodeError as e:
-                    return {
-                        'success': False,
-                        'error': f"Failed to parse JSON output: {e}",
-                        'raw_stdout': result.stdout,
-                        'raw_stderr': result.stderr,
-                    }
+                # Success - return simplified result (no JSON parsing in verbose mode)
+                return {
+                    'success': True,
+                    'result': f'{self.role} agent completed successfully',
+                    'cost_usd': 0.0,  # Can't parse cost without JSON
+                    'num_turns': 0,
+                    'duration_ms': int(elapsed * 1000),
+                }
             else:
                 # Execution failed
                 return {
                     'success': False,
                     'error': f"Claude Code exited with code {result.returncode}",
-                    'raw_stdout': result.stdout,
-                    'raw_stderr': result.stderr,
                 }
 
         except subprocess.TimeoutExpired:
