@@ -103,6 +103,9 @@ class Orchestrator:
         print("📋 STARTING NEW USER STORY")
         print("="*60)
         print(f"Story: {user_story[:100]}{'...' if len(user_story) > 100 else ''}")
+        print(f"\n🔄 Workflow: Architect → Security → Tester → Product Owner")
+        print(f"⏱️  Expected time: 2-5 minutes")
+        print(f"💰 Expected cost: $0.06-0.15")
         print("="*60 + "\n")
 
         result = WorkflowResult()

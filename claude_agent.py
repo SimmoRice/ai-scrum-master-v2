@@ -85,9 +85,16 @@ class ClaudeCodeAgent:
         print(f"{'='*60}")
         print(f"Task: {task[:100]}{'...' if len(task) > 100 else ''}")
         print(f"Workspace: {self.workspace}")
-        print(f"{'='*60}\n")
+        print(f"Timeout: {timeout}s")
+        print(f"{'='*60}")
+        print(f"⏳ Running Claude Code (this may take 30-120 seconds)...")
+        print(f"💭 {self.role} is thinking and working...")
+        print()
 
         try:
+            import time
+            start_time = time.time()
+
             # Execute Claude Code as subprocess
             result = subprocess.run(
                 cmd,
@@ -96,6 +103,9 @@ class ClaudeCodeAgent:
                 text=True,
                 timeout=timeout
             )
+
+            elapsed = time.time() - start_time
+            print(f"✓ Completed in {elapsed:.1f} seconds")
 
             # Check if execution succeeded
             if result.returncode == 0:
@@ -154,15 +164,25 @@ class ClaudeCodeAgent:
 
         if result['success']:
             print(f"✅ Success")
-            print(f"💬 Response: {result['result'][:200]}{'...' if len(result['result']) > 200 else ''}")
-            print(f"💰 Cost: ${result['cost_usd']:.4f}")
-            print(f"🔄 Turns: {result['num_turns']}")
-            print(f"⏱️  Duration: {result['duration_ms']}ms")
+            print(f"\n💬 What {self.role} did:")
+            # Show response with better formatting
+            response = result['result']
+            if len(response) > 500:
+                print(f"   {response[:500]}...")
+                print(f"   ... (truncated, {len(response)} chars total)")
+            else:
+                print(f"   {response}")
+
+            print(f"\n📊 Stats:")
+            print(f"   💰 Cost: ${result['cost_usd']:.4f}")
+            print(f"   🔄 Turns: {result['num_turns']}")
+            print(f"   ⏱️  Duration: {result['duration_ms']/1000:.1f}s")
         else:
             print(f"❌ Failed")
-            print(f"Error: {result.get('error', 'Unknown error')}")
+            print(f"\n⚠️  Error: {result.get('error', 'Unknown error')}")
             if 'raw_stderr' in result and result['raw_stderr']:
-                print(f"Stderr: {result['raw_stderr'][:300]}")
+                print(f"\n📋 Details:")
+                print(f"   {result['raw_stderr'][:500]}")
 
         print(f"{'='*60}\n")
 
