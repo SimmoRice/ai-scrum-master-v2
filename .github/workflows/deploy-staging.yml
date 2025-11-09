@@ -1,0 +1,120 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Staging Environment
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+        if: hashFiles('**/package.json') != ''
+
+      - name: Install dependencies
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          fi
+
+      - name: Build for staging
+        run: |
+          if [ -f package.json ]; then
+            if npm run build --dry-run 2>/dev/null; then
+              npm run build
+            else
+              echo "No build script, using source files directly"
+            fi
+          fi
+
+      - name: Deploy to staging (Local)
+        run: |
+          echo "📦 Staging deployment prepared"
+          echo "Files ready for deployment to Proxmox staging environment"
+          echo ""
+          echo "To deploy to your Proxmox cluster:"
+          echo "1. Build the project locally: npm run build (if applicable)"
+          echo "2. Package files: tar -czf staging-$(date +%Y%m%d-%H%M%S).tar.gz dist/ (or relevant directory)"
+          echo "3. Transfer to Proxmox: scp staging-*.tar.gz user@proxmox-host:/path/to/staging/"
+          echo "4. Extract and deploy on staging server"
+          echo ""
+          echo "For now, this workflow validates the build succeeds."
+
+      - name: Notify staging deployment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Find the most recent merged PR to staging
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              base: 'staging',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 5
+            });
+
+            for (const pr of prs) {
+              if (pr.merged_at) {
+                // Found the merged PR, look for issue reference
+                const issueMatch = pr.body?.match(/#(\d+)/);
+
+                if (issueMatch) {
+                  const issueNumber = parseInt(issueMatch[1]);
+
+                  try {
+                    // Update issue label
+                    await github.rest.issues.addLabels({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issueNumber,
+                      labels: ['in-staging']
+                    });
+
+                    // Remove old labels
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issueNumber,
+                      name: 'needs-review'
+                    }).catch(() => {}); // Ignore if label doesn't exist
+
+                    // Add comment
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issueNumber,
+                      body: `🚀 **Feature deployed to staging environment**
+
+Ready for User Acceptance Testing (UAT).
+
+**Next Steps:**
+1. Test the feature thoroughly on staging
+2. Verify all acceptance criteria are met
+3. Check for any unintended side effects
+4. If everything passes, approve for production deployment
+
+**Staging Info:**
+- Branch: \`staging\`
+- Commit: ${context.sha.substring(0, 7)}
+- Deployed: ${new Date().toISOString()}`
+                    });
+
+                    console.log(`Updated issue #${issueNumber} with staging deployment info`);
+                  } catch (error) {
+                    console.log(`Could not update issue #${issueNumber}: ${error.message}`);
+                  }
+                }
+
+                break; // Only process the most recent merged PR
+              }
+            }

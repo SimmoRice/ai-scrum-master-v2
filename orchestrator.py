@@ -21,8 +21,10 @@ from config import (
     SECURITY_BRANCH,
     TESTER_BRANCH,
     MAIN_BRANCH,
-    WORKFLOW_CONFIG
+    WORKFLOW_CONFIG,
+    GITHUB_CONFIG
 )
+from github_integration import GitHubIntegration
 
 
 class WorkflowResult:
@@ -30,18 +32,27 @@ class WorkflowResult:
 
     def __init__(self):
         self.user_story = ""
+        self.agents = []  # List of agent results for PR body generation
         self.architect_result = None
         self.security_result = None
         self.tester_result = None
         self.po_decision = None
+        self.po_result = None
         self.revision_count = 0
         self.approved = False
         self.total_cost = 0.0
+        self.total_duration_ms = 0
         self.errors = []
+        self.pr_url = None  # GitHub PR URL if created
+        self.issue_number = None  # GitHub issue number if from issue
 
     def add_cost(self, cost: float):
         """Add to total cost"""
         self.total_cost += cost
+
+    def add_duration(self, duration_ms: int):
+        """Add to total duration"""
+        self.total_duration_ms += duration_ms
 
     def __repr__(self):
         status = "APPROVED" if self.approved else "IN PROGRESS"
@@ -75,6 +86,9 @@ class Orchestrator:
 
         # Logger will be initialized per workflow
         self.logger = None
+
+        # GitHub integration
+        self.github = GitHubIntegration(GITHUB_CONFIG) if GITHUB_CONFIG.get('enabled') else None
 
         # Initialize workspace
         self._initialize_workspace()
@@ -153,11 +167,31 @@ class Orchestrator:
 
             if po_decision == "APPROVE":
                 result.approved = True
-                print("\n✅ Product Owner APPROVED the implementation!")
+                print("\n" + "="*60)
+                print("🎉 PRODUCT OWNER APPROVED!")
+                print("="*60)
                 self.logger.log_decision("APPROVE", result.po_decision)
 
-                # Merge to main if configured
-                if WORKFLOW_CONFIG['auto_merge_on_approval']:
+                # Create GitHub PR if enabled
+                if self.github and GITHUB_CONFIG.get('auto_create_pr'):
+                    print("\n📝 Creating GitHub Pull Request...")
+                    try:
+                        result.pr_url = self.github.create_pr(
+                            workflow_result=result,
+                            issue_number=result.issue_number
+                        )
+                        if result.pr_url:
+                            print(f"✅ PR created successfully!")
+                            print(f"   URL: {result.pr_url}")
+                            print(f"\n⚠️  NEXT STEP: Review the PR and merge manually when ready")
+                            self.logger.logger.info(f"✅ PR created: {result.pr_url}")
+                    except Exception as e:
+                        print(f"⚠️  PR creation failed: {e}")
+                        print(f"   Continuing without PR...")
+                        self.logger.log_error(f"PR creation failed: {e}")
+
+                # Merge to main if configured (deprecated in v2.2, use PR workflow instead)
+                if WORKFLOW_CONFIG['auto_merge_on_approval'] and not result.pr_url:
                     print("\n🔀 Merging approved work to main branch...")
                     if self.git.merge_workflow_to_main():
                         print("✅ Successfully merged to main!")
@@ -334,6 +368,8 @@ Please address the feedback and improve your implementation."""
 
         result.architect_result = arch_result
         result.add_cost(arch_result.get('cost_usd', 0.0))
+        result.add_duration(arch_result.get('duration_ms', 0))
+        result.agents.append(arch_result)  # Track for PR body
 
         # VALIDATION GATE: Ensure Architect completed work
         if not self.git.branch_has_commits(ARCHITECT_BRANCH, MAIN_BRANCH):
@@ -378,6 +414,8 @@ Edit files directly to add security improvements, then commit your changes."""
 
         result.security_result = sec_result
         result.add_cost(sec_result.get('cost_usd', 0.0))
+        result.add_duration(sec_result.get('duration_ms', 0))
+        result.agents.append(sec_result)  # Track for PR body
 
         # VALIDATION GATE: Ensure Security completed work
         if not self.git.branch_has_commits(SECURITY_BRANCH, ARCHITECT_BRANCH):
@@ -420,6 +458,8 @@ Then RUN the tests to verify they pass. Commit test files and results."""
 
         result.tester_result = test_result
         result.add_cost(test_result.get('cost_usd', 0.0))
+        result.add_duration(test_result.get('duration_ms', 0))
+        result.agents.append(test_result)  # Track for PR body
 
         return True
 
@@ -509,7 +549,10 @@ Provide detailed reasoning and specific feedback if requesting revisions."""
             base_branch=None  # PO doesn't modify code, no need to reset
         )
 
+        result.po_result = po_result
         result.add_cost(po_result.get('cost_usd', 0.0))
+        result.add_duration(po_result.get('duration_ms', 0))
+        result.agents.append(po_result)  # Track for PR body
 
         # Parse decision from response
         if po_result['success']:

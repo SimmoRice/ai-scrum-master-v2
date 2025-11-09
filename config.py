@@ -4,7 +4,7 @@ Configuration for AI Scrum Master
 from pathlib import Path
 
 # Version
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent
@@ -50,4 +50,23 @@ GIT_CONFIG = {
 LOGGING_CONFIG = {
     "level": "INFO",
     "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+}
+
+# GitHub Integration (v2.2)
+GITHUB_CONFIG = {
+    "enabled": True,
+    "auto_create_pr": True,           # Create PR automatically after PO approval
+    "pr_target_branch": "staging",    # PRs target staging branch (not main)
+    "include_review_checklist": True, # Include comprehensive review checklist in PR
+    "link_pr_to_issue": True,         # Link PRs back to originating issues
+    "require_manual_review": True,    # Always require human review (no auto-merge)
+}
+
+# Deployment Configuration
+DEPLOYMENT_CONFIG = {
+    "development_branch_prefix": "ai-scrum-",
+    "staging_branch": "staging",
+    "production_branch": "main",
+    "auto_deploy_staging": False,  # Will be handled by GitHub Actions
+    "auto_deploy_production": False,  # Will be handled by GitHub Actions
 }
