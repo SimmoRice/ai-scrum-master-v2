@@ -7,6 +7,7 @@ All notable changes to AI Scrum Master will be documented in this file.
 ### Critical Fixes
 - **FIXED: Revision loop preserves architect-branch** - The critical bug where architect-branch was deleted and recreated from main during revisions has been fixed. Now the Architect can properly iterate on existing code instead of starting from scratch.
 - **FIXED: Only downstream branches cleaned on revision** - During revisions, only security-branch and tester-branch are deleted, preserving the Architect's work.
+- **FIXED: Product Owner crash with large workspaces** - Product Owner now reviews only git-tracked files instead of all files in directory, preventing crashes when node_modules or other large directories exist.
 
 ### Added
 - **Comprehensive logging system** (`logger.py`)

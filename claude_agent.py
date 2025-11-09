@@ -115,6 +115,7 @@ class ClaudeCodeAgent:
                 with open(debug_log, "a") as f:
                     f.write(f"\n{'='*60}\n")
                     f.write(f"Agent: {self.role} | Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Return code: {result.returncode}\n")
                     f.write(f"{'='*60}\n")
                     f.write(result.stderr)
                     f.write(f"\n{'='*60}\n\n")

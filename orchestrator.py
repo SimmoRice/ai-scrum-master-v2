@@ -191,6 +191,71 @@ class Orchestrator:
         self.logger.log_workflow_complete("completed")
         return result
 
+    def _execute_agent_with_retry(
+        self,
+        agent: ClaudeCodeAgent,
+        task: str,
+        agent_name: str,
+        branch_name: str,
+        base_branch: str = None
+    ) -> Dict[str, Any]:
+        """
+        Execute an agent with retry logic on transient failures
+
+        Args:
+            agent: The agent to execute
+            task: The task description
+            agent_name: Name of the agent for logging
+            branch_name: Git branch for this agent
+            base_branch: Base branch to reset from on retry (optional)
+
+        Returns:
+            Agent execution result dict
+        """
+        import time
+
+        max_retries = WORKFLOW_CONFIG.get('max_agent_retries', 2)
+        backoff = WORKFLOW_CONFIG.get('retry_backoff_seconds', 5)
+
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                wait_time = backoff * (2 ** (attempt - 1))  # Exponential backoff
+                print(f"\n⚠️  Retry attempt {attempt}/{max_retries} for {agent_name} after {wait_time}s...")
+                time.sleep(wait_time)
+
+                # Reset branch to clean state for retry
+                if base_branch and self.git.branch_exists(branch_name):
+                    print(f"🔄 Resetting '{branch_name}' to clean state...")
+                    # Checkout base branch before deleting target branch
+                    self.git.checkout_branch(base_branch)
+                    self.git.delete_branch(branch_name, force=True)
+                    self.git.create_branch(branch_name, from_branch=base_branch)
+
+            # Execute agent
+            self.logger.log_agent_start(agent_name, task)
+            agent_result = agent.execute_task(task)
+            self.logger.log_agent_end(agent_name, agent_result)
+            agent.print_result(agent_result)
+
+            # Check if we should retry
+            if agent_result['success']:
+                return agent_result
+
+            # Check if this is a retryable error
+            error = agent_result.get('error', '')
+            if 'Claude Code exited with code 1' in error or 'timeout' in error.lower():
+                # Transient error - can retry
+                self.logger.log_error(f"{agent_name} failed (attempt {attempt + 1}): {error}")
+                if attempt < max_retries:
+                    continue
+            else:
+                # Non-retryable error (validation failure, etc.) - don't retry
+                self.logger.log_error(f"{agent_name} failed with non-retryable error: {error}")
+                return agent_result
+
+        # All retries exhausted
+        return agent_result
+
     def _execute_workflow_sequence(
         self,
         user_story: str,
@@ -254,14 +319,17 @@ Do NOT start from scratch - build upon what you already created.
 
 Please address the feedback and improve your implementation."""
 
-        self.logger.log_agent_start("Architect", arch_task)
-        arch_result = architect.execute_task(arch_task)
-        self.logger.log_agent_end("Architect", arch_result)
-        architect.print_result(arch_result)
+        # Execute with retry logic
+        arch_result = self._execute_agent_with_retry(
+            agent=architect,
+            task=arch_task,
+            agent_name="Architect",
+            branch_name=ARCHITECT_BRANCH,
+            base_branch=MAIN_BRANCH if not is_revision else None  # Only reset on first iteration
+        )
 
         if not arch_result['success']:
             result.errors.append(f"Architect failed: {arch_result.get('error')}")
-            self.logger.log_error(f"Architect failed: {arch_result.get('error')}")
             return False
 
         result.architect_result = arch_result
@@ -295,14 +363,17 @@ Identify and fix any security vulnerabilities:
 
 Edit files directly to add security improvements, then commit your changes."""
 
-        self.logger.log_agent_start("Security", sec_task)
-        sec_result = security.execute_task(sec_task)
-        self.logger.log_agent_end("Security", sec_result)
-        security.print_result(sec_result)
+        # Execute with retry logic
+        sec_result = self._execute_agent_with_retry(
+            agent=security,
+            task=sec_task,
+            agent_name="Security",
+            branch_name=SECURITY_BRANCH,
+            base_branch=ARCHITECT_BRANCH
+        )
 
         if not sec_result['success']:
             result.errors.append(f"Security failed: {sec_result.get('error')}")
-            self.logger.log_error(f"Security failed: {sec_result.get('error')}")
             return False
 
         result.security_result = sec_result
@@ -334,14 +405,17 @@ Write actual, runnable tests covering:
 
 Then RUN the tests to verify they pass. Commit test files and results."""
 
-        self.logger.log_agent_start("Tester", test_task)
-        test_result = tester.execute_task(test_task)
-        self.logger.log_agent_end("Tester", test_result)
-        tester.print_result(test_result)
+        # Execute with retry logic
+        test_result = self._execute_agent_with_retry(
+            agent=tester,
+            task=test_task,
+            agent_name="Tester",
+            branch_name=TESTER_BRANCH,
+            base_branch=SECURITY_BRANCH
+        )
 
         if not test_result['success']:
             result.errors.append(f"Tester failed: {test_result.get('error')}")
-            self.logger.log_error(f"Tester failed: {test_result.get('error')}")
             return False
 
         result.tester_result = test_result
@@ -368,12 +442,19 @@ Then RUN the tests to verify they pass. Commit test files and results."""
 
         po = ClaudeCodeAgent("ProductOwner", self.workspace, PRODUCT_OWNER_PROMPT)
 
+        # Get list of tracked files (excludes node_modules, .git, etc.)
+        files = self.git.list_files()
+        files_list = "\n".join(f"- {f}" for f in files)
+
         review_task = f"""Review the completed implementation against the original user story.
 
 ORIGINAL USER STORY:
 {user_story}
 
-Review ALL files in the current directory and make ONE decision:
+FILES TO REVIEW:
+{files_list}
+
+Review the files listed above and make ONE decision:
 - APPROVE: Meets requirements, ready to merge
 - REVISE: Good but needs improvements (provide specific feedback)
 - REJECT: Fundamentally flawed, needs complete redo
@@ -382,10 +463,14 @@ Your response MUST start with: DECISION: [APPROVE|REVISE|REJECT]
 
 Provide detailed reasoning and specific feedback if requesting revisions."""
 
-        self.logger.log_agent_start("ProductOwner", review_task)
-        po_result = po.execute_task(review_task)
-        self.logger.log_agent_end("ProductOwner", po_result)
-        po.print_result(po_result)
+        # Execute with retry logic (no base branch for PO - doesn't modify code)
+        po_result = self._execute_agent_with_retry(
+            agent=po,
+            task=review_task,
+            agent_name="ProductOwner",
+            branch_name=TESTER_BRANCH,
+            base_branch=None  # PO doesn't modify code, no need to reset
+        )
 
         result.add_cost(po_result.get('cost_usd', 0.0))
 

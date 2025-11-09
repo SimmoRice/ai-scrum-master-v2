@@ -36,6 +36,8 @@ WORKFLOW_CONFIG = {
     "max_revisions": 3,  # Maximum number of revision iterations
     "auto_merge_on_approval": True,  # Automatically merge when PO approves
     "require_tests_passing": True,  # Require tests to pass before PO review
+    "max_agent_retries": 2,  # Maximum retries per agent on transient failures
+    "retry_backoff_seconds": 5,  # Initial backoff time between retries (exponential)
 }
 
 # Git user configuration

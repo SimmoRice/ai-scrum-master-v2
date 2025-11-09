@@ -13,10 +13,12 @@ from config import VERSION
 
 def print_banner():
     """Print welcome banner"""
+    version_line = f"AI SCRUM MASTER v{VERSION}"
+    subtitle = "Claude Code Multi-Agent System"
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
-║              AI SCRUM MASTER v{VERSION:<24}║
-║          Claude Code Multi-Agent System                   ║
+║{version_line:^61}║
+║{subtitle:^61}║
 ╚═══════════════════════════════════════════════════════════╝
 """)
 
