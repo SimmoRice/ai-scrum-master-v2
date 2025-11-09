@@ -107,6 +107,18 @@ class ClaudeCodeAgent:
             elapsed = time.time() - start_time
             print(f"✓ Completed in {elapsed:.1f} seconds")
 
+            # Log stderr for debugging (even on success)
+            if result.stderr:
+                import os
+                debug_log = Path("logs") / "claude_debug.log"
+                debug_log.parent.mkdir(exist_ok=True)
+                with open(debug_log, "a") as f:
+                    f.write(f"\n{'='*60}\n")
+                    f.write(f"Agent: {self.role} | Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"{'='*60}\n")
+                    f.write(result.stderr)
+                    f.write(f"\n{'='*60}\n\n")
+
             # Check if execution succeeded
             if result.returncode == 0:
                 # Parse JSON output
