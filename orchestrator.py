@@ -1,0 +1,345 @@
+"""
+Orchestrator - Coordinates the AI Scrum Master workflow
+
+Manages the sequential execution of agents:
+Architect -> Security -> Tester -> Product Owner
+"""
+from pathlib import Path
+from typing import Dict, Any, Optional
+from claude_agent import ClaudeCodeAgent
+from git_manager import GitManager
+from agents import (
+    ARCHITECT_PROMPT,
+    SECURITY_PROMPT,
+    TESTER_PROMPT,
+    PRODUCT_OWNER_PROMPT
+)
+from config import (
+    WORKSPACE_DIR,
+    ARCHITECT_BRANCH,
+    SECURITY_BRANCH,
+    TESTER_BRANCH,
+    MAIN_BRANCH,
+    WORKFLOW_CONFIG
+)
+
+
+class WorkflowResult:
+    """Result of a complete workflow execution"""
+
+    def __init__(self):
+        self.user_story = ""
+        self.architect_result = None
+        self.security_result = None
+        self.tester_result = None
+        self.po_decision = None
+        self.revision_count = 0
+        self.approved = False
+        self.total_cost = 0.0
+        self.errors = []
+
+    def add_cost(self, cost: float):
+        """Add to total cost"""
+        self.total_cost += cost
+
+    def __repr__(self):
+        status = "APPROVED" if self.approved else "IN PROGRESS"
+        return f"WorkflowResult(status='{status}', cost=${self.total_cost:.4f}, revisions={self.revision_count})"
+
+
+class Orchestrator:
+    """
+    Coordinates the multi-agent workflow
+
+    Responsibilities:
+    - Initialize workspace and git repository
+    - Execute agents in sequence
+    - Manage git branches
+    - Handle Product Owner decisions
+    - Coordinate revisions
+    """
+
+    def __init__(self, workspace_dir: Optional[Path] = None):
+        """
+        Initialize the orchestrator
+
+        Args:
+            workspace_dir: Optional custom workspace directory
+        """
+        self.workspace = Path(workspace_dir) if workspace_dir else WORKSPACE_DIR
+        self.workspace.mkdir(parents=True, exist_ok=True)
+
+        # Initialize git manager
+        self.git = GitManager(self.workspace)
+
+        # Initialize workspace
+        self._initialize_workspace()
+
+    def _initialize_workspace(self):
+        """Set up workspace and git repository"""
+        print("\n🚀 Initializing AI Scrum Master Workspace")
+        print("="*60)
+
+        # Initialize git repository
+        self.git.initialize_repository()
+
+        # Set up workflow branches
+        self.git.setup_workflow_branches()
+
+        print("="*60)
+        print("✅ Workspace ready!\n")
+
+    def process_user_story(self, user_story: str) -> WorkflowResult:
+        """
+        Execute the complete workflow for a user story
+
+        Args:
+            user_story: The user story/requirement to implement
+
+        Returns:
+            WorkflowResult with execution details
+        """
+        print("\n" + "="*60)
+        print("📋 STARTING NEW USER STORY")
+        print("="*60)
+        print(f"Story: {user_story[:100]}{'...' if len(user_story) > 100 else ''}")
+        print("="*60 + "\n")
+
+        result = WorkflowResult()
+        result.user_story = user_story
+
+        # Reset workflow branches for clean start
+        self.git.reset_workflow_branches()
+
+        # Execute workflow with revision loop
+        max_revisions = WORKFLOW_CONFIG['max_revisions']
+
+        for revision in range(max_revisions + 1):
+            if revision > 0:
+                print(f"\n🔄 REVISION #{revision}")
+                print("="*60 + "\n")
+                result.revision_count = revision
+
+            # Execute sequential agents
+            success = self._execute_workflow_sequence(user_story, result, is_revision=revision > 0)
+
+            if not success:
+                print("\n❌ Workflow failed during execution")
+                return result
+
+            # Product Owner review
+            po_decision = self._product_owner_review(user_story, result)
+
+            if po_decision == "APPROVE":
+                result.approved = True
+                print("\n✅ Product Owner APPROVED the implementation!")
+
+                # Merge to main if configured
+                if WORKFLOW_CONFIG['auto_merge_on_approval']:
+                    print("\n🔀 Merging approved work to main branch...")
+                    if self.git.merge_workflow_to_main():
+                        print("✅ Successfully merged to main!")
+                    else:
+                        print("⚠️  Merge failed - manual intervention needed")
+
+                return result
+
+            elif po_decision == "REJECT":
+                print("\n❌ Product Owner REJECTED the implementation")
+                result.errors.append(f"Rejected after {revision} revision(s)")
+                return result
+
+            elif po_decision == "REVISE":
+                if revision < max_revisions:
+                    print(f"\n🔄 Product Owner requested REVISIONS ({revision + 1}/{max_revisions})")
+                    # Continue to next iteration
+                    continue
+                else:
+                    print(f"\n⚠️  Maximum revisions ({max_revisions}) reached")
+                    result.errors.append(f"Max revisions reached without approval")
+                    return result
+
+        return result
+
+    def _execute_workflow_sequence(
+        self,
+        user_story: str,
+        result: WorkflowResult,
+        is_revision: bool = False
+    ) -> bool:
+        """
+        Execute the Architect -> Security -> Tester sequence
+
+        Args:
+            user_story: The user story being implemented
+            result: WorkflowResult to update
+            is_revision: Whether this is a revision iteration
+
+        Returns:
+            True if all agents succeeded
+        """
+        # Phase 1: Architect Implementation
+        print("\n🏗️  PHASE 1: ARCHITECT")
+        print("="*60)
+        self.git.checkout_branch(ARCHITECT_BRANCH)
+
+        architect = ClaudeCodeAgent("Architect", self.workspace, ARCHITECT_PROMPT)
+
+        arch_task = user_story
+        if is_revision and result.po_decision:
+            arch_task = f"""REVISION REQUEST
+
+Original User Story:
+{user_story}
+
+Product Owner Feedback:
+{result.po_decision}
+
+Please address the feedback and improve the implementation."""
+
+        arch_result = architect.execute_task(arch_task)
+        architect.print_result(arch_result)
+
+        if not arch_result['success']:
+            result.errors.append(f"Architect failed: {arch_result.get('error')}")
+            return False
+
+        result.architect_result = arch_result
+        result.add_cost(arch_result.get('cost_usd', 0.0))
+
+        # Phase 2: Security Review
+        print("\n🔒 PHASE 2: SECURITY")
+        print("="*60)
+        self.git.checkout_branch(SECURITY_BRANCH)
+
+        security = ClaudeCodeAgent("Security", self.workspace, SECURITY_PROMPT)
+
+        sec_task = """Review the implementation created by the Architect.
+
+Identify and fix any security vulnerabilities:
+- Input validation
+- SQL injection
+- XSS prevention
+- Authentication/authorization issues
+- Sensitive data handling
+- Error handling
+
+Edit files directly to add security improvements, then commit your changes."""
+
+        sec_result = security.execute_task(sec_task)
+        security.print_result(sec_result)
+
+        if not sec_result['success']:
+            result.errors.append(f"Security failed: {sec_result.get('error')}")
+            return False
+
+        result.security_result = sec_result
+        result.add_cost(sec_result.get('cost_usd', 0.0))
+
+        # Phase 3: Testing
+        print("\n🧪 PHASE 3: TESTER")
+        print("="*60)
+        self.git.checkout_branch(TESTER_BRANCH)
+
+        tester = ClaudeCodeAgent("Tester", self.workspace, TESTER_PROMPT)
+
+        test_task = """Create comprehensive tests for the implementation.
+
+Write actual, runnable tests covering:
+- Happy path functionality
+- Edge cases
+- Error handling
+- Security validations
+
+Then RUN the tests to verify they pass. Commit test files and results."""
+
+        test_result = tester.execute_task(test_task)
+        tester.print_result(test_result)
+
+        if not test_result['success']:
+            result.errors.append(f"Tester failed: {test_result.get('error')}")
+            return False
+
+        result.tester_result = test_result
+        result.add_cost(test_result.get('cost_usd', 0.0))
+
+        return True
+
+    def _product_owner_review(self, user_story: str, result: WorkflowResult) -> str:
+        """
+        Product Owner reviews the completed work
+
+        Args:
+            user_story: Original user story
+            result: Current workflow result
+
+        Returns:
+            Decision: "APPROVE", "REVISE", or "REJECT"
+        """
+        print("\n👔 PHASE 4: PRODUCT OWNER REVIEW")
+        print("="*60)
+
+        # Stay on tester branch for review
+        self.git.checkout_branch(TESTER_BRANCH)
+
+        po = ClaudeCodeAgent("ProductOwner", self.workspace, PRODUCT_OWNER_PROMPT)
+
+        review_task = f"""Review the completed implementation against the original user story.
+
+ORIGINAL USER STORY:
+{user_story}
+
+Review ALL files in the current directory and make ONE decision:
+- APPROVE: Meets requirements, ready to merge
+- REVISE: Good but needs improvements (provide specific feedback)
+- REJECT: Fundamentally flawed, needs complete redo
+
+Your response MUST start with: DECISION: [APPROVE|REVISE|REJECT]
+
+Provide detailed reasoning and specific feedback if requesting revisions."""
+
+        po_result = po.execute_task(review_task)
+        po.print_result(po_result)
+
+        result.add_cost(po_result.get('cost_usd', 0.0))
+
+        # Parse decision from response
+        if po_result['success']:
+            response = po_result['result'].upper()
+
+            if "DECISION: APPROVE" in response or "DECISION:APPROVE" in response:
+                result.po_decision = po_result['result']
+                return "APPROVE"
+            elif "DECISION: REVISE" in response or "DECISION:REVISE" in response:
+                result.po_decision = po_result['result']
+                return "REVISE"
+            elif "DECISION: REJECT" in response or "DECISION:REJECT" in response:
+                result.po_decision = po_result['result']
+                return "REJECT"
+            else:
+                print("⚠️  Could not parse PO decision, defaulting to REVISE")
+                result.po_decision = po_result['result']
+                return "REVISE"
+        else:
+            print("❌ Product Owner review failed")
+            result.errors.append("PO review failed")
+            return "REJECT"
+
+    def get_workspace_status(self) -> Dict[str, Any]:
+        """
+        Get current workspace status
+
+        Returns:
+            Dictionary with workspace information
+        """
+        return {
+            'workspace': str(self.workspace),
+            'current_branch': self.git.get_current_branch(),
+            'main_commits': self.git.get_branch_log(MAIN_BRANCH, 5),
+            'architect_commits': self.git.get_branch_log(ARCHITECT_BRANCH, 5),
+            'security_commits': self.git.get_branch_log(SECURITY_BRANCH, 5),
+            'tester_commits': self.git.get_branch_log(TESTER_BRANCH, 5),
+        }
+
+    def __repr__(self):
+        return f"Orchestrator(workspace='{self.workspace}')"
