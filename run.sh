@@ -39,44 +39,88 @@ if [ ! -f ".env" ]; then
     echo ""
 fi
 
-# Show help
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "AI Scrum Master - Multi-Agent Development System"
-    echo ""
-    echo "Usage:"
-    echo "  ./run.sh                    Start interactive mode"
-    echo "  ./run.sh \"user story\"       Execute a single task"
-    echo "  ./run.sh --help             Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  # Interactive mode"
-    echo "  ./run.sh"
-    echo ""
-    echo "  # Direct execution"
-    echo "  ./run.sh \"Build a calculator web app with dark mode\""
-    echo ""
-    echo "  # Multi-line (use quotes)"
-    echo "  ./run.sh \"Build a REST API for todos with:"
-    echo "  - GET /todos"
-    echo "  - POST /todos"
-    echo "  - PUT /todos/:id"
-    echo "  - DELETE /todos/:id\""
-    echo ""
-    echo "Environment Variables:"
-    echo "  ANTHROPIC_API_KEY    Required - Your Anthropic API key"
-    echo ""
-    echo "Documentation:"
-    echo "  docs/SETUP_GITHUB_INTEGRATION.md    GitHub setup guide"
-    echo "  docs/PRODUCTION_DEPLOYMENT_WORKFLOW.md    Full CI/CD workflow"
-    echo "  RELEASE_NOTES_v2.2.md                v2.2 release notes"
-    echo ""
-    exit 0
+# Parse flags
+WORKSPACE_DIR=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --help|-h)
+            echo "AI Scrum Master - Multi-Agent Development System"
+            echo ""
+            echo "Usage:"
+            echo "  ./run.sh                           Start interactive mode"
+            echo "  ./run.sh \"user story\"              Execute a single task"
+            echo "  ./run.sh --workspace PATH \"story\"  Work on external project"
+            echo "  ./run.sh --help                    Show this help message"
+            echo ""
+            echo "Options:"
+            echo "  --workspace PATH    Work on an external project directory"
+            echo "                      Can be absolute or relative path"
+            echo ""
+            echo "Examples:"
+            echo "  # Interactive mode (internal workspace)"
+            echo "  ./run.sh"
+            echo ""
+            echo "  # Direct execution (internal workspace)"
+            echo "  ./run.sh \"Build a calculator web app with dark mode\""
+            echo ""
+            echo "  # Work on external project"
+            echo "  ./run.sh --workspace ../my-calculator-app \"add dark mode toggle\""
+            echo ""
+            echo "  # Work on external project (absolute path)"
+            echo "  ./run.sh --workspace /Users/simon/projects/my-app \"add user login\""
+            echo ""
+            echo "  # Multi-line (use quotes)"
+            echo "  ./run.sh --workspace ../my-api \"Build a REST API for todos with:"
+            echo "  - GET /todos"
+            echo "  - POST /todos"
+            echo "  - PUT /todos/:id"
+            echo "  - DELETE /todos/:id\""
+            echo ""
+            echo "Environment Variables:"
+            echo "  ANTHROPIC_API_KEY    Required - Your Anthropic API key"
+            echo ""
+            echo "Documentation:"
+            echo "  docs/SETUP_GITHUB_INTEGRATION.md    GitHub setup guide"
+            echo "  docs/PRODUCTION_DEPLOYMENT_WORKFLOW.md    Full CI/CD workflow"
+            echo "  RELEASE_NOTES_v2.2.md                v2.2 release notes"
+            echo ""
+            exit 0
+            ;;
+        --workspace)
+            WORKSPACE_DIR="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Validate workspace directory if provided
+if [ -n "$WORKSPACE_DIR" ]; then
+    # Convert to absolute path
+    WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" 2>/dev/null && pwd || echo "$WORKSPACE_DIR")
+
+    if [ ! -d "$WORKSPACE_DIR" ]; then
+        echo -e "${RED}❌ Error: Workspace directory not found: $WORKSPACE_DIR${NC}"
+        echo "   Please provide a valid directory path"
+        exit 1
+    fi
+
+    echo -e "${BLUE}📁 Working on external project: ${WORKSPACE_DIR}${NC}"
 fi
 
-# If no arguments, run interactive mode
+# If no arguments (after parsing flags), run interactive mode
 if [ $# -eq 0 ]; then
     echo -e "${BLUE}🚀 Starting AI Scrum Master (Interactive Mode)${NC}"
     echo ""
+
+    if [ -n "$WORKSPACE_DIR" ]; then
+        echo -e "${YELLOW}⚠️  Note: Interactive mode with --workspace not yet supported${NC}"
+        echo "   Use direct execution: ./run.sh --workspace PATH \"user story\""
+        exit 1
+    fi
+
     python3 main.py
     exit 0
 fi
@@ -85,20 +129,32 @@ fi
 USER_STORY="$*"
 
 echo -e "${BLUE}🚀 Starting AI Scrum Master${NC}"
+if [ -n "$WORKSPACE_DIR" ]; then
+    echo -e "${GREEN}Workspace: ${WORKSPACE_DIR}${NC}"
+fi
 echo -e "${GREEN}User Story: ${USER_STORY}${NC}"
 echo ""
 
 # Create a temporary Python script to run the task directly
 python3 - <<PYTHON_SCRIPT
 import sys
+from pathlib import Path
 from orchestrator import Orchestrator
 
-# Capture user story from command line
+# Capture user story and workspace from command line
 user_story = """${USER_STORY}"""
+workspace_dir = "${WORKSPACE_DIR}" if "${WORKSPACE_DIR}" else None
 
 print("Initializing AI Scrum Master...")
 try:
-    orchestrator = Orchestrator()
+    # Pass workspace_dir to Orchestrator if provided
+    if workspace_dir:
+        workspace_path = Path(workspace_dir)
+        print(f"Using external workspace: {workspace_path}")
+        orchestrator = Orchestrator(workspace_dir=workspace_path)
+    else:
+        orchestrator = Orchestrator()
+
     print("✅ Ready! Starting workflow...\n")
 
     result = orchestrator.process_user_story(user_story)
