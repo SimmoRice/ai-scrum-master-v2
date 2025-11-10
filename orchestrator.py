@@ -78,11 +78,25 @@ class Orchestrator:
         Args:
             workspace_dir: Optional custom workspace directory
         """
-        self.workspace = Path(workspace_dir) if workspace_dir else WORKSPACE_DIR
-        self.workspace.mkdir(parents=True, exist_ok=True)
+        # Determine workspace and git root
+        if workspace_dir:
+            # External workspace mode - work in the specified directory
+            self.workspace = Path(workspace_dir)
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            # Use the external workspace for git operations
+            git_root = self.workspace
+            self.is_external_workspace = True
+        else:
+            # Internal workspace mode - work on AI Scrum Master itself
+            self.workspace = WORKSPACE_DIR
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            # Use project root (parent of workspace) for git operations
+            # This prevents creating workspace/.git and uses the main repo
+            git_root = WORKSPACE_DIR.parent
+            self.is_external_workspace = False
 
-        # Initialize git manager
-        self.git = GitManager(self.workspace)
+        # Initialize git manager with appropriate root
+        self.git = GitManager(git_root)
 
         # Logger will be initialized per workflow
         self.logger = None
@@ -90,7 +104,7 @@ class Orchestrator:
         # GitHub integration
         self.github = GitHubIntegration(GITHUB_CONFIG) if GITHUB_CONFIG.get('enabled') else None
 
-        # Initialize workspace
+        # Initialize workspace (only creates git repo for external workspaces)
         self._initialize_workspace()
 
     def _initialize_workspace(self):
@@ -98,8 +112,13 @@ class Orchestrator:
         print("\n🚀 Initializing AI Scrum Master Workspace")
         print("="*60)
 
-        # Initialize git repository (creates main branch with initial commit)
-        self.git.initialize_repository()
+        if self.is_external_workspace:
+            # External workspace - initialize git if needed
+            self.git.initialize_repository()
+        else:
+            # Internal workspace - use existing project git repo
+            print(f"✅ Using project git repository at {self.git.workspace}")
+            print(f"📁 Working directory: {self.workspace}")
 
         # Note: Workflow branches are created dynamically during workflow execution
         # This ensures each branch builds on the previous agent's actual work
