@@ -5,6 +5,7 @@ AI Scrum Master - Main CLI
 Multi-agent development system powered by Claude Code
 """
 import sys
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 from orchestrator import Orchestrator, WorkflowResult
@@ -162,6 +163,20 @@ def print_result_summary(result: WorkflowResult):
 
 def main():
     """Main CLI loop"""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="AI Scrum Master - Multi-agent development system powered by Claude Code",
+        add_help=True
+    )
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'AI Scrum Master v{VERSION}'
+    )
+
+    # Parse arguments (this will handle --version and exit automatically)
+    parser.parse_args()
+
     # Load environment variables
     load_dotenv()
 
