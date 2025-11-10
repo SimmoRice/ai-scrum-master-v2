@@ -85,6 +85,8 @@ class Orchestrator:
             self.workspace.mkdir(parents=True, exist_ok=True)
             # Use the external workspace for git operations
             git_root = self.workspace
+            # Agents work in the same directory as git
+            self.agent_workspace = self.workspace
             self.is_external_workspace = True
         else:
             # Internal workspace mode - work on AI Scrum Master itself
@@ -93,6 +95,8 @@ class Orchestrator:
             # Use project root (parent of workspace) for git operations
             # This prevents creating workspace/.git and uses the main repo
             git_root = WORKSPACE_DIR.parent
+            # Agents work in git root (project root) to access all files
+            self.agent_workspace = git_root
             self.is_external_workspace = False
 
         # Initialize git manager with appropriate root
@@ -118,7 +122,8 @@ class Orchestrator:
         else:
             # Internal workspace - use existing project git repo
             print(f"✅ Using project git repository at {self.git.workspace}")
-            print(f"📁 Working directory: {self.workspace}")
+            print(f"📁 Agents will work in: {self.agent_workspace}")
+            print(f"📂 Workspace directory: {self.workspace} (for organization only)")
 
         # Note: Workflow branches are created dynamically during workflow execution
         # This ensures each branch builds on the previous agent's actual work
@@ -353,7 +358,7 @@ class Orchestrator:
             self.git.checkout_branch(MAIN_BRANCH)
             self.git.create_branch(ARCHITECT_BRANCH, from_branch=MAIN_BRANCH)
 
-        architect = ClaudeCodeAgent("Architect", self.workspace, ARCHITECT_PROMPT)
+        architect = ClaudeCodeAgent("Architect", self.agent_workspace, ARCHITECT_PROMPT)
 
         arch_task = user_story
         if is_revision and result.po_decision:
@@ -410,7 +415,7 @@ Please address the feedback and improve your implementation."""
         # Create security branch from architect (inherits Architect's work)
         self.git.create_branch(SECURITY_BRANCH, from_branch=ARCHITECT_BRANCH)
 
-        security = ClaudeCodeAgent("Security", self.workspace, SECURITY_PROMPT)
+        security = ClaudeCodeAgent("Security", self.agent_workspace, SECURITY_PROMPT)
 
         sec_task = """Review the implementation created by the Architect.
 
@@ -456,7 +461,7 @@ Edit files directly to add security improvements, then commit your changes."""
         # Create tester branch from security (inherits Architect + Security's work)
         self.git.create_branch(TESTER_BRANCH, from_branch=SECURITY_BRANCH)
 
-        tester = ClaudeCodeAgent("Tester", self.workspace, TESTER_PROMPT)
+        tester = ClaudeCodeAgent("Tester", self.agent_workspace, TESTER_PROMPT)
 
         test_task = """Create comprehensive tests for the implementation.
 
@@ -542,7 +547,7 @@ Then RUN the tests to verify they pass. Commit test files and results."""
                 print(issue)
             print("These may be test artifacts that should be removed.\n")
 
-        po = ClaudeCodeAgent("ProductOwner", self.workspace, PRODUCT_OWNER_PROMPT)
+        po = ClaudeCodeAgent("ProductOwner", self.agent_workspace, PRODUCT_OWNER_PROMPT)
 
         # Get list of tracked files (excludes node_modules, .git, etc.)
         files = self.git.list_files()
