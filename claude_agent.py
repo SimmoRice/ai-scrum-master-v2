@@ -93,16 +93,41 @@ class ClaudeCodeAgent:
 
         try:
             import time
+            import threading
             start_time = time.time()
 
-            # Execute Claude Code as subprocess
-            result = subprocess.run(
-                cmd,
-                cwd=str(self.workspace),
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
+            # Create stop event before defining the function that uses it
+            stop_progress = threading.Event()
+
+            # Progress monitoring function
+            def show_progress():
+                """Show periodic heartbeat messages during long-running tasks"""
+                interval = 30  # Show message every 30 seconds
+                while not stop_progress.is_set():
+                    time.sleep(interval)
+                    if not stop_progress.is_set():
+                        elapsed = time.time() - start_time
+                        minutes = int(elapsed // 60)
+                        seconds = int(elapsed % 60)
+                        print(f"⏳ Still running... {minutes}m {seconds}s elapsed (max {timeout}s)")
+
+            # Start progress monitoring in background
+            progress_thread = threading.Thread(target=show_progress, daemon=True)
+            progress_thread.start()
+
+            try:
+                # Execute Claude Code as subprocess
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(self.workspace),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+            finally:
+                # Stop progress monitoring
+                stop_progress.set()
+                progress_thread.join(timeout=1)
 
             elapsed = time.time() - start_time
             print(f"✓ Completed in {elapsed:.1f} seconds")

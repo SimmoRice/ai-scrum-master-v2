@@ -18,7 +18,7 @@ TESTER_BRANCH = "tester-branch"
 
 # Claude Code CLI settings
 CLAUDE_CLI_CONFIG = {
-    "timeout": 600,  # 10 minutes per agent execution (agents can take time to think and commit)
+    "timeout": 2400,  # 40 minutes per agent execution (extended for complex tasks like code review)
     "output_format": "json",
     "allowed_tools": "Write,Read,Edit,Bash,Glob,Grep",
 }
@@ -54,7 +54,7 @@ LOGGING_CONFIG = {
 
 # GitHub Integration (v2.2)
 GITHUB_CONFIG = {
-    "enabled": True,
+    "enabled": False,
     "auto_create_pr": True,           # Create PR automatically after PO approval
     "pr_target_branch": "staging",    # PRs target staging branch (not main)
     "include_review_checklist": True, # Include comprehensive review checklist in PR
