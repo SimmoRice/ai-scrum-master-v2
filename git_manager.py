@@ -162,7 +162,7 @@ class GitManager:
 
     def merge_branch(self, source_branch: str, target_branch: str, message: Optional[str] = None) -> bool:
         """
-        Merge source branch into target branch
+        Merge source branch into target branch with automatic cleanup on failure
 
         Args:
             source_branch: Branch to merge from
@@ -172,19 +172,75 @@ class GitManager:
         Returns:
             True if merge succeeded, False otherwise
         """
-        # Checkout target branch
-        self.checkout_branch(target_branch)
-
-        # Merge source branch
-        merge_msg = message or f"Merge {source_branch} into {target_branch}"
+        # Track original branch before merge to restore on failure
+        original_branch = self.get_current_branch()
+        merge_succeeded = False
 
         try:
-            self._run_git("merge", source_branch, "-m", merge_msg)
-            print(f"✅ Merged '{source_branch}' into '{target_branch}'")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Merge failed: {e.stderr}")
-            return False
+            # Checkout target branch
+            self.checkout_branch(target_branch)
+
+            # Merge source branch
+            merge_msg = message or f"Merge {source_branch} into {target_branch}"
+
+            try:
+                self._run_git("merge", source_branch, "-m", merge_msg)
+                print(f"✅ Merged '{source_branch}' into '{target_branch}'")
+                merge_succeeded = True
+                return True
+
+            except subprocess.CalledProcessError as e:
+                # Enhanced error messages showing what conflicted
+                error_output = e.stderr.strip() if e.stderr else ""
+
+                print(f"❌ Merge failed: {source_branch} → {target_branch}")
+
+                # Check if it's a merge conflict
+                if "CONFLICT" in error_output or "conflict" in error_output.lower():
+                    print("⚠️  Merge conflicts detected:")
+                    # Extract conflict information from git output
+                    for line in error_output.split('\n'):
+                        if 'CONFLICT' in line or 'conflict' in line.lower():
+                            print(f"   {line}")
+
+                    # Show how to fix
+                    print("\n💡 How to fix manually:")
+                    print(f"   1. git checkout {target_branch}")
+                    print(f"   2. git merge {source_branch}")
+                    print(f"   3. Resolve conflicts in the listed files")
+                    print(f"   4. git add <resolved-files>")
+                    print(f"   5. git commit")
+                else:
+                    # Other merge errors
+                    print(f"   Error details: {error_output}")
+
+                return False
+
+        finally:
+            # Ensure cleanup happens regardless of success or failure
+            # Check if repository is in MERGING state
+            merge_head = self.workspace / ".git" / "MERGE_HEAD"
+            if merge_head.exists():
+                print("🔄 Cleaning up failed merge state...")
+                try:
+                    # Abort the merge to restore clean state
+                    self._run_git("merge", "--abort", check=False)
+                    print("✅ Merge aborted, repository restored to clean state")
+                except subprocess.CalledProcessError as abort_error:
+                    print(f"⚠️  Could not abort merge: {abort_error.stderr}")
+                    print("⚠️  Repository may be in MERGING state - manual intervention needed")
+                    print(f"   Run: cd {self.workspace} && git merge --abort")
+
+                # Try to return to original branch only if merge failed
+                if not merge_succeeded:
+                    current = self.get_current_branch()
+                    if current != original_branch:
+                        try:
+                            self.checkout_branch(original_branch)
+                            print(f"🔄 Restored to original branch '{original_branch}'")
+                        except subprocess.CalledProcessError:
+                            # Can't switch back, stay on target branch
+                            print(f"⚠️  Could not return to '{original_branch}', staying on '{current}'")
 
     def setup_workflow_branches(self) -> None:
         """
