@@ -4,7 +4,7 @@ Configuration for AI Scrum Master
 from pathlib import Path
 
 # Version
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent

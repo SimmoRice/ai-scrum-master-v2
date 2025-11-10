@@ -2,6 +2,14 @@
 
 All notable changes to AI Scrum Master will be documented in this file.
 
+## [2.2.1] - 2025-11-10
+
+### Critical Fixes
+- **Version Update** - Updated version number to 2.2.1 to reflect patch release with critical branch preservation bug fix from v2.1.0
+
+### Documentation
+- **Release Notes** - Added RELEASE_NOTES_v2.2.1.md documenting the critical branch bug fix and verification
+
 ## [2.1.0] - 2025-11-09
 
 ### Critical Fixes
