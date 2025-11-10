@@ -265,6 +265,12 @@ class Orchestrator:
                     self.git.delete_branch(branch_name, force=True)
                     self.git.create_branch(branch_name, from_branch=base_branch)
 
+            # Ensure we're on the correct branch before executing agent
+            current_branch = self.git.get_current_branch()
+            if current_branch != branch_name:
+                print(f"🔄 Switching to branch '{branch_name}' for {agent_name}")
+                self.git.checkout_branch(branch_name)
+
             # Execute agent
             self.logger.log_agent_start(agent_name, task)
             agent_result = agent.execute_task(task)
