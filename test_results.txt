@@ -1,0 +1,12 @@
+............................F........................................... [ 36%]
+...............FF.F..................................................... [ 73%]
+.................F......F................F..........                     [100%]
+=========================== short test summary info ============================
+FAILED test_claude_agent.py::TestProgressMonitoring::test_progress_monitoring_starts
+FAILED test_git_manager.py::TestSecurityValidations::test_reject_system_directory_paths
+FAILED test_git_manager.py::TestSecurityValidations::test_reject_path_traversal
+FAILED test_git_manager.py::TestSecurityValidations::test_validate_branch_name_accepts_valid_names
+FAILED test_logger.py::TestWorkflowLoggerInitialization::test_init_creates_json_log_file
+FAILED test_logger.py::TestLoggingAgentExecution::test_log_agent_end_failure
+FAILED test_logger.py::TestJSONPersistence::test_json_file_created_on_init - ...
+7 failed, 189 passed in 24.89s

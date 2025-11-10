@@ -3,6 +3,10 @@
 # Environment management
 python-dotenv==1.0.0
 
-# No other dependencies needed!
+# Testing dependencies
+pytest==7.4.3
+pytest-cov==4.1.0
+
+# No other runtime dependencies needed!
 # Claude Code CLI handles all AI interactions
 # Git operations use subprocess (built-in)
