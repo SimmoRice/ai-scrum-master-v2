@@ -5,6 +5,7 @@ from pathlib import Path
 
 # Version
 VERSION = "2.2.1"
+AUTHOR = 'AI Scrum Master Team'
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent
