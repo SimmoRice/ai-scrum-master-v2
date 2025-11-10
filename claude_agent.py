@@ -6,6 +6,7 @@ with specific system prompts and working directories.
 """
 import subprocess
 import json
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 from config import CLAUDE_CLI_CONFIG
@@ -43,6 +44,36 @@ class ClaudeCodeAgent:
 
         # Ensure workspace exists
         self.workspace.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _sanitize_log_output(output: str) -> str:
+        """
+        Sanitize log output to prevent sensitive data leakage
+
+        Security: Removes API keys, tokens, passwords, and other sensitive data
+
+        Args:
+            output: Raw log output
+
+        Returns:
+            Sanitized output
+        """
+        # Security: Redact common sensitive patterns
+        patterns = [
+            (r'ANTHROPIC_API_KEY[=:]\s*["\']?([a-zA-Z0-9_-]+)["\']?', 'ANTHROPIC_API_KEY=***REDACTED***'),
+            (r'API_KEY[=:]\s*["\']?([a-zA-Z0-9_-]+)["\']?', 'API_KEY=***REDACTED***'),
+            (r'TOKEN[=:]\s*["\']?([a-zA-Z0-9_-]+)["\']?', 'TOKEN=***REDACTED***'),
+            (r'PASSWORD[=:]\s*["\']?([^\s"\']+)["\']?', 'PASSWORD=***REDACTED***'),
+            (r'SECRET[=:]\s*["\']?([a-zA-Z0-9_-]+)["\']?', 'SECRET=***REDACTED***'),
+            (r'sk-[a-zA-Z0-9]{32,}', '***REDACTED_API_KEY***'),  # Anthropic API key pattern
+            (r'ghp_[a-zA-Z0-9]{36,}', '***REDACTED_GITHUB_TOKEN***'),  # GitHub token
+        ]
+
+        sanitized = output
+        for pattern, replacement in patterns:
+            sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
+
+        return sanitized
 
     def execute_task(
         self,
@@ -132,17 +163,21 @@ class ClaudeCodeAgent:
             elapsed = time.time() - start_time
             print(f"✓ Completed in {elapsed:.1f} seconds")
 
-            # Log stderr for debugging (even on success)
+            # Security: Log stderr for debugging but sanitize sensitive data
             if result.stderr:
                 import os
                 debug_log = Path("logs") / "claude_debug.log"
                 debug_log.parent.mkdir(exist_ok=True)
+
+                # Security: Sanitize stderr to prevent sensitive data leakage
+                sanitized_stderr = self._sanitize_log_output(result.stderr)
+
                 with open(debug_log, "a") as f:
                     f.write(f"\n{'='*60}\n")
                     f.write(f"Agent: {self.role} | Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                     f.write(f"Return code: {result.returncode}\n")
                     f.write(f"{'='*60}\n")
-                    f.write(result.stderr)
+                    f.write(sanitized_stderr)
                     f.write(f"\n{'='*60}\n\n")
 
             # Check if execution succeeded
@@ -170,11 +205,15 @@ class ClaudeCodeAgent:
                     }
             else:
                 # Execution failed
+                # Security: Sanitize error output to prevent information disclosure
+                sanitized_stdout = self._sanitize_log_output(result.stdout) if result.stdout else ""
+                sanitized_stderr = self._sanitize_log_output(result.stderr) if result.stderr else ""
+
                 return {
                     'success': False,
                     'error': f"Claude Code exited with code {result.returncode}",
-                    'raw_stdout': result.stdout,
-                    'raw_stderr': result.stderr,
+                    'raw_stdout': sanitized_stdout[:1000],  # Limit output size
+                    'raw_stderr': sanitized_stderr[:1000],  # Limit output size
                 }
 
         except subprocess.TimeoutExpired:
@@ -184,9 +223,10 @@ class ClaudeCodeAgent:
             }
 
         except Exception as e:
+            # Security: Don't expose full exception details
             return {
                 'success': False,
-                'error': f"Unexpected error: {str(e)}",
+                'error': f"Unexpected error during agent execution",
             }
 
     def print_result(self, result: Dict[str, Any]) -> None:
@@ -218,9 +258,8 @@ class ClaudeCodeAgent:
         else:
             print(f"❌ Failed")
             print(f"\n⚠️  Error: {result.get('error', 'Unknown error')}")
-            if 'raw_stderr' in result and result['raw_stderr']:
-                print(f"\n📋 Details:")
-                print(f"   {result['raw_stderr'][:500]}")
+            # Security: Don't print raw error details that might contain sensitive info
+            # Errors are already logged to debug file with sanitization
 
         print(f"{'='*60}\n")
 

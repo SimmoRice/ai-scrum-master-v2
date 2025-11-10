@@ -5,6 +5,7 @@ Manages branch creation, switching, merging, and the overall git workflow
 for the sequential agent process.
 """
 import subprocess
+import re
 from pathlib import Path
 from typing import List, Optional
 from config import (
@@ -31,8 +32,81 @@ class GitManager:
         Args:
             workspace: Path to the git repository workspace
         """
-        self.workspace = Path(workspace)
+        self.workspace = Path(workspace).resolve()  # Security: Resolve to absolute path
+        self._validate_workspace_path(self.workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _validate_workspace_path(path: Path) -> None:
+        """
+        Validate workspace path to prevent path traversal attacks
+
+        Security: Ensures the path is safe and doesn't traverse to sensitive directories
+
+        Args:
+            path: Path to validate
+
+        Raises:
+            ValueError: If path is invalid or unsafe
+        """
+        # Security: Prevent path traversal to system directories
+        sensitive_dirs = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/home', '/System']
+        path_str = str(path)
+
+        for sensitive_dir in sensitive_dirs:
+            if path_str.startswith(sensitive_dir):
+                raise ValueError(f"Security: Workspace path cannot be in system directory: {sensitive_dir}")
+
+        # Security: Prevent access to hidden directories (except .git within workspace)
+        if '/..' in path_str or path_str.startswith('..'):
+            raise ValueError("Security: Path traversal detected in workspace path")
+
+    @staticmethod
+    def _validate_branch_name(branch_name: str) -> None:
+        """
+        Validate git branch name to prevent command injection
+
+        Security: Ensures branch names are safe for use in shell commands
+
+        Args:
+            branch_name: Branch name to validate
+
+        Raises:
+            ValueError: If branch name contains invalid characters
+        """
+        # Security: Only allow alphanumeric, hyphens, underscores, and forward slashes
+        if not re.match(r'^[a-zA-Z0-9/_-]+$', branch_name):
+            raise ValueError(f"Security: Invalid branch name '{branch_name}'. Only alphanumeric, hyphens, underscores, and slashes allowed.")
+
+        # Security: Prevent command injection attempts
+        dangerous_chars = [';', '&', '|', '$', '`', '(', ')', '<', '>', '\n', '\r']
+        for char in dangerous_chars:
+            if char in branch_name:
+                raise ValueError(f"Security: Branch name contains dangerous character: {char}")
+
+    @staticmethod
+    def _sanitize_commit_message(message: str) -> str:
+        """
+        Sanitize commit message to prevent command injection
+
+        Security: Removes potentially dangerous characters from commit messages
+
+        Args:
+            message: Commit message to sanitize
+
+        Returns:
+            Sanitized commit message
+        """
+        # Security: Remove null bytes and control characters
+        message = message.replace('\0', '')
+        message = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]', '', message)
+
+        # Security: Limit message length to prevent DoS
+        max_length = 5000
+        if len(message) > max_length:
+            message = message[:max_length] + "... (truncated for security)"
+
+        return message
 
     def _run_git(self, *args, check=True) -> subprocess.CompletedProcess:
         """
@@ -95,6 +169,11 @@ class GitManager:
             branch_name: Name of the branch to create
             from_branch: Branch to branch from (default: current branch)
         """
+        # Security: Validate branch names to prevent command injection
+        self._validate_branch_name(branch_name)
+        if from_branch:
+            self._validate_branch_name(from_branch)
+
         # Checkout source branch if specified
         if from_branch:
             self.checkout_branch(from_branch)
@@ -116,6 +195,8 @@ class GitManager:
         Args:
             branch_name: Name of the branch to checkout
         """
+        # Security: Validate branch name to prevent command injection
+        self._validate_branch_name(branch_name)
         self._run_git("checkout", branch_name)
         print(f"✅ Switched to branch '{branch_name}'")
 
@@ -140,6 +221,9 @@ class GitManager:
         Returns:
             True if commit succeeded, False if nothing to commit
         """
+        # Security: Sanitize commit message to prevent command injection
+        message = self._sanitize_commit_message(message)
+
         # Stage all changes
         self._run_git("add", ".")
 
@@ -157,7 +241,7 @@ class GitManager:
             cmd.append("--allow-empty")
 
         self._run_git(*cmd)
-        print(f"✅ Committed: {message}")
+        print(f"✅ Committed: {message[:100]}{'...' if len(message) > 100 else ''}")
         return True
 
     def merge_branch(self, source_branch: str, target_branch: str, message: Optional[str] = None) -> bool:
@@ -172,6 +256,10 @@ class GitManager:
         Returns:
             True if merge succeeded, False otherwise
         """
+        # Security: Validate branch names to prevent command injection
+        self._validate_branch_name(source_branch)
+        self._validate_branch_name(target_branch)
+
         # Track original branch before merge to restore on failure
         original_branch = self.get_current_branch()
         merge_succeeded = False
@@ -182,6 +270,8 @@ class GitManager:
 
             # Merge source branch
             merge_msg = message or f"Merge {source_branch} into {target_branch}"
+            # Security: Sanitize merge message
+            merge_msg = self._sanitize_commit_message(merge_msg)
 
             try:
                 self._run_git("merge", source_branch, "-m", merge_msg)
@@ -381,6 +471,9 @@ class GitManager:
         Returns:
             True if deleted successfully, False otherwise
         """
+        # Security: Validate branch name to prevent command injection
+        self._validate_branch_name(branch_name)
+
         if not self.branch_exists(branch_name):
             return False
 
@@ -390,7 +483,8 @@ class GitManager:
             print(f"✅ Deleted branch '{branch_name}'")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"⚠️  Failed to delete branch '{branch_name}': {e.stderr}")
+            # Security: Don't expose full error details to prevent information disclosure
+            print(f"⚠️  Failed to delete branch '{branch_name}'")
             return False
 
     def list_files(self, branch_name: Optional[str] = None) -> List[str]:
@@ -405,6 +499,8 @@ class GitManager:
         """
         try:
             if branch_name:
+                # Security: Validate branch name to prevent command injection
+                self._validate_branch_name(branch_name)
                 result = self._run_git("ls-tree", "-r", "--name-only", branch_name, check=False)
             else:
                 result = self._run_git("ls-files", check=False)
@@ -413,7 +509,8 @@ class GitManager:
                 return result.stdout.strip().split('\n')
             return []
         except Exception as e:
-            print(f"⚠️  Error listing files: {e}")
+            # Security: Don't expose full error details
+            print(f"⚠️  Error listing files")
             return []
 
     def __repr__(self) -> str:

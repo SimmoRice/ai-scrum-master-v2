@@ -24,6 +24,34 @@ def print_banner():
 """)
 
 
+def sanitize_user_input(text: str) -> str:
+    """
+    Sanitize user input to prevent injection attacks
+
+    Security: Removes null bytes, limits length, and cleans control characters
+
+    Args:
+        text: Raw user input
+
+    Returns:
+        Sanitized text
+    """
+    # Security: Remove null bytes
+    text = text.replace('\0', '')
+
+    # Security: Limit input length to prevent DoS
+    max_length = 50000  # 50KB limit
+    if len(text) > max_length:
+        print(f"⚠️  Input truncated to {max_length} characters for security")
+        text = text[:max_length]
+
+    # Security: Remove potentially dangerous control characters (keep newlines and tabs)
+    import re
+    text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
+
+    return text
+
+
 def get_multiline_input(prompt: str = "> ") -> str:
     r"""
     Get input from user with multi-line support
@@ -36,7 +64,7 @@ def get_multiline_input(prompt: str = "> ") -> str:
         prompt: The prompt to display
 
     Returns:
-        Complete user input as a single string
+        Complete user input as a single string (sanitized)
     """
     lines = []
     first_line = True
@@ -83,8 +111,9 @@ def get_multiline_input(prompt: str = "> ") -> str:
             # Ctrl+D pressed - submit what we have
             break
 
-    # Join all lines with newlines and return
-    return "\n".join(lines)
+    # Join all lines with newlines and sanitize
+    result = "\n".join(lines)
+    return sanitize_user_input(result)
 
 
 def print_help():

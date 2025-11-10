@@ -10,6 +10,7 @@ Handles:
 
 import subprocess
 import json
+import re
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 
@@ -27,6 +28,69 @@ class GitHubIntegration:
         self.config = config
         self.base_branch = config.get('pr_target_branch', 'staging')
         self.include_checklist = config.get('include_review_checklist', True)
+
+    @staticmethod
+    def _validate_issue_number(issue_number: int) -> None:
+        """
+        Validate GitHub issue number to prevent injection
+
+        Security: Ensures issue number is a positive integer
+
+        Args:
+            issue_number: Issue number to validate
+
+        Raises:
+            ValueError: If issue number is invalid
+        """
+        if not isinstance(issue_number, int) or issue_number <= 0:
+            raise ValueError(f"Security: Invalid issue number: {issue_number}")
+
+    @staticmethod
+    def _validate_label(label: str) -> None:
+        """
+        Validate GitHub label to prevent command injection
+
+        Security: Ensures label contains only safe characters
+
+        Args:
+            label: Label to validate
+
+        Raises:
+            ValueError: If label contains dangerous characters
+        """
+        # Security: Only allow alphanumeric, hyphens, and underscores
+        if not re.match(r'^[a-zA-Z0-9_-]+$', label):
+            raise ValueError(f"Security: Invalid label format: {label}")
+
+        # Security: Limit label length
+        if len(label) > 50:
+            raise ValueError(f"Security: Label too long (max 50 chars): {label}")
+
+    @staticmethod
+    def _sanitize_text(text: str, max_length: int = 10000) -> str:
+        """
+        Sanitize text for use in GitHub commands
+
+        Security: Removes dangerous characters and limits length
+
+        Args:
+            text: Text to sanitize
+            max_length: Maximum allowed length
+
+        Returns:
+            Sanitized text
+        """
+        # Security: Remove null bytes
+        text = text.replace('\0', '')
+
+        # Security: Limit length to prevent DoS
+        if len(text) > max_length:
+            text = text[:max_length] + "... (truncated for security)"
+
+        # Security: Remove control characters except newlines and tabs
+        text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]', '', text)
+
+        return text
 
     def check_gh_cli_installed(self) -> bool:
         """Check if GitHub CLI is installed and authenticated"""
@@ -52,6 +116,13 @@ class GitHubIntegration:
         Returns:
             List of issue dicts with number, title, body, labels
         """
+        # Security: Validate label to prevent command injection
+        self._validate_label(label)
+
+        # Security: Validate limit to prevent abuse
+        if not isinstance(limit, int) or limit <= 0 or limit > 100:
+            raise ValueError(f"Security: Invalid limit value: {limit}")
+
         if not self.check_gh_cli_installed():
             print("⚠️  GitHub CLI not installed or not authenticated")
             print("   Install: brew install gh")
@@ -69,14 +140,16 @@ class GitHubIntegration:
             if result.returncode == 0:
                 return json.loads(result.stdout)
             else:
-                print(f"⚠️  Failed to fetch issues: {result.stderr}")
+                # Security: Don't expose full error details
+                print(f"⚠️  Failed to fetch issues")
                 return []
 
         except subprocess.TimeoutExpired:
             print("⚠️  GitHub CLI timed out")
             return []
         except json.JSONDecodeError as e:
-            print(f"⚠️  Failed to parse GitHub response: {e}")
+            # Security: Don't expose full error details
+            print(f"⚠️  Failed to parse GitHub response")
             return []
 
     def mark_issue_in_progress(self, issue_number: int) -> bool:
@@ -89,6 +162,9 @@ class GitHubIntegration:
         Returns:
             True if successful
         """
+        # Security: Validate issue number to prevent command injection
+        self._validate_issue_number(issue_number)
+
         try:
             # Remove ready-for-dev label
             subprocess.run([
@@ -129,15 +205,20 @@ class GitHubIntegration:
         Returns:
             PR URL if successful, None otherwise
         """
+        # Security: Validate issue number if provided
+        if issue_number is not None:
+            self._validate_issue_number(issue_number)
+
         if not self.check_gh_cli_installed():
             raise Exception(
                 "GitHub CLI not installed or authenticated. "
                 "Run: gh auth login"
             )
 
-        # Generate PR title
-        pr_title = f"Feature: {workflow_result.user_story[:60]}"
-        if len(workflow_result.user_story) > 60:
+        # Generate PR title - sanitize user story
+        sanitized_story = self._sanitize_text(workflow_result.user_story, max_length=200)
+        pr_title = f"Feature: {sanitized_story[:60]}"
+        if len(sanitized_story) > 60:
             pr_title += "..."
 
         # Generate PR body with checklist
@@ -311,6 +392,12 @@ Before merging, please verify:
 
     def _link_pr_to_issue(self, issue_number: int, pr_url: str) -> None:
         """Link PR back to issue with comment"""
+        # Security: Validate issue number
+        self._validate_issue_number(issue_number)
+
+        # Security: Sanitize PR URL to prevent injection
+        pr_url = self._sanitize_text(pr_url, max_length=500)
+
         try:
             subprocess.run([
                 'gh', 'issue', 'comment', str(issue_number),
@@ -347,6 +434,9 @@ Please review and test before merging to staging.
         Returns:
             Issue dict or None
         """
+        # Security: Validate issue number to prevent command injection
+        self._validate_issue_number(issue_number)
+
         try:
             result = subprocess.run([
                 'gh', 'issue', 'view', str(issue_number),
