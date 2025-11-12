@@ -13,6 +13,7 @@ import json
 import re
 from datetime import datetime
 from typing import Optional, Dict, List, Any
+from utils import validate_issue_number, validate_github_label, sanitize_github_text
 
 
 class GitHubIntegration:
@@ -35,6 +36,7 @@ class GitHubIntegration:
         Validate GitHub issue number to prevent injection
 
         Security: Ensures issue number is a positive integer
+        Now uses shared validation from utils module.
 
         Args:
             issue_number: Issue number to validate
@@ -42,7 +44,7 @@ class GitHubIntegration:
         Raises:
             ValueError: If issue number is invalid
         """
-        if not isinstance(issue_number, int) or issue_number <= 0:
+        if not validate_issue_number(issue_number):
             raise ValueError(f"Security: Invalid issue number: {issue_number}")
 
     @staticmethod
@@ -51,6 +53,7 @@ class GitHubIntegration:
         Validate GitHub label to prevent command injection
 
         Security: Ensures label contains only safe characters
+        Now uses shared validation from utils module.
 
         Args:
             label: Label to validate
@@ -58,39 +61,10 @@ class GitHubIntegration:
         Raises:
             ValueError: If label contains dangerous characters
         """
-        # Security: Only allow alphanumeric, hyphens, and underscores
-        if not re.match(r'^[a-zA-Z0-9_-]+$', label):
+        if validate_github_label(label) is None:
             raise ValueError(f"Security: Invalid label format: {label}")
 
-        # Security: Limit label length
-        if len(label) > 50:
-            raise ValueError(f"Security: Label too long (max 50 chars): {label}")
-
-    @staticmethod
-    def _sanitize_text(text: str, max_length: int = 10000) -> str:
-        """
-        Sanitize text for use in GitHub commands
-
-        Security: Removes dangerous characters and limits length
-
-        Args:
-            text: Text to sanitize
-            max_length: Maximum allowed length
-
-        Returns:
-            Sanitized text
-        """
-        # Security: Remove null bytes
-        text = text.replace('\0', '')
-
-        # Security: Limit length to prevent DoS
-        if len(text) > max_length:
-            text = text[:max_length] + "... (truncated for security)"
-
-        # Security: Remove control characters except newlines and tabs
-        text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]', '', text)
-
-        return text
+    # _sanitize_text now uses sanitize_github_text from utils module
 
     def check_gh_cli_installed(self) -> bool:
         """Check if GitHub CLI is installed and authenticated"""
@@ -216,7 +190,7 @@ class GitHubIntegration:
             )
 
         # Generate PR title - sanitize user story
-        sanitized_story = self._sanitize_text(workflow_result.user_story, max_length=200)
+        sanitized_story = sanitize_github_text(workflow_result.user_story, max_length=200)
         pr_title = f"Feature: {sanitized_story[:60]}"
         if len(sanitized_story) > 60:
             pr_title += "..."
@@ -396,7 +370,7 @@ Before merging, please verify:
         self._validate_issue_number(issue_number)
 
         # Security: Sanitize PR URL to prevent injection
-        pr_url = self._sanitize_text(pr_url, max_length=500)
+        pr_url = sanitize_github_text(pr_url, max_length=500)
 
         try:
             subprocess.run([

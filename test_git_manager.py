@@ -59,19 +59,18 @@ class TestSecurityValidations:
 
     def test_reject_system_directory_paths(self):
         """Security: Test that system directory paths are rejected"""
-        system_dirs = ['/etc/test', '/var/test', '/usr/test', '/bin/test', '/sbin/test']
+        system_dirs = ['/etc/test', '/usr/test', '/bin/test', '/sbin/test', '/var/log/test']
 
         for sys_dir in system_dirs:
             with pytest.raises(ValueError, match="Security"):
                 GitManager(Path(sys_dir))
 
     def test_reject_path_traversal(self):
-        """Security: Test that path traversal attempts are rejected"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Try path with ..
-            traversal_path = Path(tmpdir) / ".." / "etc" / "passwd"
-            with pytest.raises(ValueError, match="Security"):
-                GitManager(traversal_path)
+        """Security: Test that path traversal attempts to system dirs are rejected"""
+        # Try to create workspace in /etc via traversal (will resolve to /private/etc on macOS)
+        traversal_path = Path("/tmp/../etc/test_workspace")
+        with pytest.raises(ValueError, match="Security"):
+            GitManager(traversal_path)
 
     def test_validate_branch_name_rejects_special_chars(self):
         """Security: Test that branch names with special characters are rejected"""
@@ -113,38 +112,35 @@ class TestSecurityValidations:
 
     def test_sanitize_commit_message_removes_null_bytes(self):
         """Security: Test that null bytes are removed from commit messages"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            git_manager = GitManager(Path(tmpdir))
+        from utils import sanitize_commit_message
 
-            message = "Test\0message\0with\0nulls"
-            sanitized = git_manager._sanitize_commit_message(message)
+        message = "Test\0message\0with\0nulls"
+        sanitized = sanitize_commit_message(message)
 
-            assert "\0" not in sanitized
+        assert "\0" not in sanitized
 
     def test_sanitize_commit_message_removes_control_chars(self):
         """Security: Test that control characters are removed"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            git_manager = GitManager(Path(tmpdir))
+        from utils import sanitize_commit_message
 
-            message = "Test\x01\x02\x03message"
-            sanitized = git_manager._sanitize_commit_message(message)
+        message = "Test\x01\x02\x03message"
+        sanitized = sanitize_commit_message(message)
 
-            # Control characters should be removed
-            assert "\x01" not in sanitized
-            assert "\x02" not in sanitized
-            assert "\x03" not in sanitized
+        # Control characters should be removed
+        assert "\x01" not in sanitized
+        assert "\x02" not in sanitized
+        assert "\x03" not in sanitized
 
     def test_sanitize_commit_message_limits_length(self):
         """Security: Test that commit messages are length-limited"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            git_manager = GitManager(Path(tmpdir))
+        from utils import sanitize_commit_message
 
-            # Create a very long message
-            long_message = "A" * 10000
-            sanitized = git_manager._sanitize_commit_message(long_message)
+        # Create a very long message
+        long_message = "A" * 10000
+        sanitized = sanitize_commit_message(long_message)
 
-            # Should be truncated
-            assert len(sanitized) <= 5100  # 5000 + truncation message
+        # Should be truncated
+        assert len(sanitized) <= 5100  # 5000 + truncation message
 
 
 class TestGitRepositoryOperations:

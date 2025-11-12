@@ -106,15 +106,19 @@ class TestSecurityValidations:
 
     def test_sanitize_text_removes_null_bytes(self):
         """Security: Test that null bytes are removed"""
+        from utils import sanitize_github_text
+
         text = "Test\0text\0with\0nulls"
-        sanitized = GitHubIntegration._sanitize_text(text)
+        sanitized = sanitize_github_text(text)
 
         assert "\0" not in sanitized
 
     def test_sanitize_text_removes_control_chars(self):
         """Security: Test that control characters are removed"""
+        from utils import sanitize_github_text
+
         text = "Test\x01\x02\x03text"
-        sanitized = GitHubIntegration._sanitize_text(text)
+        sanitized = sanitize_github_text(text)
 
         assert "\x01" not in sanitized
         assert "\x02" not in sanitized
@@ -122,15 +126,19 @@ class TestSecurityValidations:
 
     def test_sanitize_text_limits_length(self):
         """Security: Test that text is length-limited"""
+        from utils import sanitize_github_text
+
         long_text = "A" * 20000
-        sanitized = GitHubIntegration._sanitize_text(long_text, max_length=5000)
+        sanitized = sanitize_github_text(long_text, max_length=5000)
 
         assert len(sanitized) <= 5100  # 5000 + truncation message
 
     def test_sanitize_text_preserves_newlines_and_tabs(self):
         """Test that newlines and tabs are preserved"""
+        from utils import sanitize_github_text
+
         text = "Line 1\nLine 2\tTabbed"
-        sanitized = GitHubIntegration._sanitize_text(text)
+        sanitized = sanitize_github_text(text)
 
         assert "\n" in sanitized
         assert "\t" in sanitized

@@ -15,6 +15,7 @@ from config import (
     TESTER_BRANCH,
     GIT_CONFIG
 )
+from utils import validate_branch_name, sanitize_commit_message
 
 
 class GitManager:
@@ -32,8 +33,10 @@ class GitManager:
         Args:
             workspace: Path to the git repository workspace
         """
-        self.workspace = Path(workspace).resolve()  # Security: Resolve to absolute path
-        self._validate_workspace_path(self.workspace)
+        # Security: Resolve to absolute path and validate BEFORE creating directory
+        resolved_path = Path(workspace).resolve()
+        self._validate_workspace_path(resolved_path)
+        self.workspace = resolved_path
         self.workspace.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
@@ -49,17 +52,29 @@ class GitManager:
         Raises:
             ValueError: If path is invalid or unsafe
         """
-        # Security: Prevent path traversal to system directories
-        sensitive_dirs = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/home', '/System']
+        # Security: Prevent path traversal to critical system directories
+        # Note: /var/folders (macOS temp) and /tmp are explicitly allowed
+        sensitive_dirs = [
+            '/etc', '/private/etc',
+            '/usr', '/bin', '/sbin',
+            '/root', '/home',
+            '/System', '/Library/System'
+        ]
         path_str = str(path)
 
+        # Check for sensitive system directories
         for sensitive_dir in sensitive_dirs:
-            if path_str.startswith(sensitive_dir):
+            if path_str.startswith(sensitive_dir + '/') or path_str == sensitive_dir:
                 raise ValueError(f"Security: Workspace path cannot be in system directory: {sensitive_dir}")
 
-        # Security: Prevent access to hidden directories (except .git within workspace)
-        if '/..' in path_str or path_str.startswith('..'):
-            raise ValueError("Security: Path traversal detected in workspace path")
+        # Block specific /var subdirectories but allow /var/folders (macOS temp) and /var/tmp
+        if path_str.startswith('/var/') or path_str.startswith('/private/var/'):
+            # Extract the subdirectory after /var/ or /private/var/
+            var_subdir = path_str.replace('/private/var/', '/var/')
+            blocked_var_dirs = ['/var/log', '/var/db', '/var/spool', '/var/mail', '/var/run']
+            for blocked_dir in blocked_var_dirs:
+                if var_subdir.startswith(blocked_dir + '/') or var_subdir == blocked_dir:
+                    raise ValueError(f"Security: Workspace path cannot be in system directory: {blocked_dir}")
 
     @staticmethod
     def _validate_branch_name(branch_name: str) -> None:
@@ -67,6 +82,7 @@ class GitManager:
         Validate git branch name to prevent command injection
 
         Security: Ensures branch names are safe for use in shell commands
+        Now uses shared validation from utils module.
 
         Args:
             branch_name: Branch name to validate
@@ -74,39 +90,10 @@ class GitManager:
         Raises:
             ValueError: If branch name contains invalid characters
         """
-        # Security: Only allow alphanumeric, hyphens, underscores, and forward slashes
-        if not re.match(r'^[a-zA-Z0-9/_-]+$', branch_name):
+        if not validate_branch_name(branch_name):
             raise ValueError(f"Security: Invalid branch name '{branch_name}'. Only alphanumeric, hyphens, underscores, and slashes allowed.")
 
-        # Security: Prevent command injection attempts
-        dangerous_chars = [';', '&', '|', '$', '`', '(', ')', '<', '>', '\n', '\r']
-        for char in dangerous_chars:
-            if char in branch_name:
-                raise ValueError(f"Security: Branch name contains dangerous character: {char}")
-
-    @staticmethod
-    def _sanitize_commit_message(message: str) -> str:
-        """
-        Sanitize commit message to prevent command injection
-
-        Security: Removes potentially dangerous characters from commit messages
-
-        Args:
-            message: Commit message to sanitize
-
-        Returns:
-            Sanitized commit message
-        """
-        # Security: Remove null bytes and control characters
-        message = message.replace('\0', '')
-        message = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]', '', message)
-
-        # Security: Limit message length to prevent DoS
-        max_length = 5000
-        if len(message) > max_length:
-            message = message[:max_length] + "... (truncated for security)"
-
-        return message
+    # _sanitize_commit_message now uses shared function from utils module
 
     def _run_git(self, *args, check=True) -> subprocess.CompletedProcess:
         """
@@ -269,7 +256,7 @@ class GitManager:
             True if commit succeeded, False if nothing to commit
         """
         # Security: Sanitize commit message to prevent command injection
-        message = self._sanitize_commit_message(message)
+        message = sanitize_commit_message(message)
 
         # Stage all changes
         self._run_git("add", ".")
@@ -318,7 +305,7 @@ class GitManager:
             # Merge source branch
             merge_msg = message or f"Merge {source_branch} into {target_branch}"
             # Security: Sanitize merge message
-            merge_msg = self._sanitize_commit_message(merge_msg)
+            merge_msg = sanitize_commit_message(merge_msg)
 
             try:
                 self._run_git("merge", source_branch, "-m", merge_msg)

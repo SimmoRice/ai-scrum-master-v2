@@ -9,7 +9,8 @@ import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 from orchestrator import Orchestrator, WorkflowResult
-from config import VERSION
+from config import VERSION, validate_config
+from utils import sanitize_user_input
 
 
 def print_banner():
@@ -24,32 +25,7 @@ def print_banner():
 """)
 
 
-def sanitize_user_input(text: str) -> str:
-    """
-    Sanitize user input to prevent injection attacks
-
-    Security: Removes null bytes, limits length, and cleans control characters
-
-    Args:
-        text: Raw user input
-
-    Returns:
-        Sanitized text
-    """
-    # Security: Remove null bytes
-    text = text.replace('\0', '')
-
-    # Security: Limit input length to prevent DoS
-    max_length = 50000  # 50KB limit
-    if len(text) > max_length:
-        print(f"⚠️  Input truncated to {max_length} characters for security")
-        text = text[:max_length]
-
-    # Security: Remove potentially dangerous control characters (keep newlines and tabs)
-    import re
-    text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
-
-    return text
+# sanitize_user_input now imported from utils module
 
 
 def get_multiline_input(prompt: str = "> ") -> str:
@@ -313,4 +289,20 @@ def main():
 
 
 if __name__ == "__main__":
+    # Validate configuration before starting
+    validation = validate_config()
+
+    if validation["errors"]:
+        print("❌ Configuration errors detected:")
+        for error in validation["errors"]:
+            print(f"   • {error}")
+        print("\nPlease fix these errors before running AI Scrum Master.")
+        sys.exit(1)
+
+    if validation["warnings"]:
+        print("⚠️  Configuration warnings:")
+        for warning in validation["warnings"]:
+            print(f"   • {warning}")
+        print()
+
     main()

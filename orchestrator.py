@@ -4,8 +4,9 @@ Orchestrator - Coordinates the AI Scrum Master workflow
 Manages the sequential execution of agents:
 Architect -> Security -> Tester -> Product Owner
 """
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from claude_agent import ClaudeCodeAgent
 from git_manager import GitManager
 from logger import WorkflowLogger
@@ -23,39 +24,51 @@ from config import (
     TESTER_BRANCH,
     MAIN_BRANCH,
     WORKFLOW_CONFIG,
-    GITHUB_CONFIG
+    GITHUB_CONFIG,
+    CACHE_CONFIG
 )
 from github_integration import GitHubIntegration
+from cache_manager import WorkflowCache
 
 
+@dataclass
+class AgentResult:
+    """Result from a single agent execution"""
+    agent: str
+    success: bool
+    cost_usd: float = 0.0
+    duration_ms: int = 0
+    num_turns: int = 0
+    error: Optional[str] = None
+
+
+@dataclass
 class WorkflowResult:
     """Result of a complete workflow execution"""
+    user_story: str = ""
+    agents: List[AgentResult] = field(default_factory=list)
+    architect_result: Optional[Dict[str, Any]] = None
+    security_result: Optional[Dict[str, Any]] = None
+    tester_result: Optional[Dict[str, Any]] = None
+    po_decision: Optional[str] = None
+    po_result: Optional[Dict[str, Any]] = None
+    revision_count: int = 0
+    approved: bool = False
+    total_cost: float = 0.0
+    total_duration_ms: int = 0
+    errors: List[str] = field(default_factory=list)
+    pr_url: Optional[str] = None
+    issue_number: Optional[int] = None
 
-    def __init__(self):
-        self.user_story = ""
-        self.agents = []  # List of agent results for PR body generation
-        self.architect_result = None
-        self.security_result = None
-        self.tester_result = None
-        self.po_decision = None
-        self.po_result = None
-        self.revision_count = 0
-        self.approved = False
-        self.total_cost = 0.0
-        self.total_duration_ms = 0
-        self.errors = []
-        self.pr_url = None  # GitHub PR URL if created
-        self.issue_number = None  # GitHub issue number if from issue
-
-    def add_cost(self, cost: float):
+    def add_cost(self, cost: float) -> None:
         """Add to total cost"""
         self.total_cost += cost
 
-    def add_duration(self, duration_ms: int):
+    def add_duration(self, duration_ms: int) -> None:
         """Add to total duration"""
         self.total_duration_ms += duration_ms
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         status = "APPROVED" if self.approved else "IN PROGRESS"
         return f"WorkflowResult(status='{status}', cost=${self.total_cost:.4f}, revisions={self.revision_count})"
 
@@ -111,6 +124,10 @@ class Orchestrator:
 
         # UI protection integration
         self.ui_protector = UIProtectionOrchestrator(self.workspace)
+
+        # Agent output cache
+        cache_enabled = CACHE_CONFIG.get('enabled', True)
+        self.cache = WorkflowCache() if cache_enabled else None
 
         # Initialize workspace (only creates git repo for external workspaces)
         self._initialize_workspace()
