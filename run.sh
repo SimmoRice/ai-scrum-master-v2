@@ -96,15 +96,22 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate workspace directory if provided
+# Process workspace directory if provided
 if [ -n "$WORKSPACE_DIR" ]; then
-    # Convert to absolute path
-    WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" 2>/dev/null && pwd || echo "$WORKSPACE_DIR")
+    # Expand tilde and convert to absolute path if directory exists
+    WORKSPACE_DIR="${WORKSPACE_DIR/#\~/$HOME}"
 
-    if [ ! -d "$WORKSPACE_DIR" ]; then
-        echo -e "${RED}❌ Error: Workspace directory not found: $WORKSPACE_DIR${NC}"
-        echo "   Please provide a valid directory path"
-        exit 1
+    # If directory exists, resolve to absolute path
+    if [ -d "$WORKSPACE_DIR" ]; then
+        WORKSPACE_DIR=$(cd "$WORKSPACE_DIR" && pwd)
+    else
+        # Directory doesn't exist - convert to absolute path manually
+        # (AI Scrum Master will create it)
+        case "$WORKSPACE_DIR" in
+            /*) ;; # Already absolute
+            *) WORKSPACE_DIR="$(pwd)/$WORKSPACE_DIR" ;; # Make absolute
+        esac
+        echo -e "${YELLOW}📁 Will create new project: ${WORKSPACE_DIR}${NC}"
     fi
 
     echo -e "${BLUE}📁 Working on external project: ${WORKSPACE_DIR}${NC}"

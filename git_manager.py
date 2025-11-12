@@ -210,6 +210,53 @@ class GitManager:
         result = self._run_git("rev-parse", "--abbrev-ref", "HEAD")
         return result.stdout.strip()
 
+    def branch_exists(self, branch_name: str) -> bool:
+        """
+        Check if a branch exists
+
+        Args:
+            branch_name: Name of the branch to check
+
+        Returns:
+            True if branch exists, False otherwise
+        """
+        # Security: Validate branch name to prevent command injection
+        self._validate_branch_name(branch_name)
+        result = self._run_git("branch", "--list", branch_name, check=False)
+        return bool(result.stdout.strip())
+
+    def has_commits(self) -> bool:
+        """
+        Check if the repository has any commits
+
+        Returns:
+            True if repository has commits, False if empty
+        """
+        result = self._run_git("rev-parse", "HEAD", check=False)
+        return result.returncode == 0
+
+    def ensure_initial_commit(self) -> None:
+        """
+        Ensure repository has at least one commit on main branch
+
+        If repository is empty, creates an initial commit with README.
+        This is needed before any branch operations can work.
+        """
+        if self.has_commits():
+            return
+
+        print("📝 Creating initial commit for empty repository...")
+
+        # Create README if it doesn't exist
+        readme = self.workspace / "README.md"
+        if not readme.exists():
+            readme.write_text("# Project\n\nInitialized by AI Scrum Master\n")
+
+        # Stage and commit
+        self._run_git("add", "README.md")
+        self._run_git("commit", "-m", "Initial commit")
+        print(f"✅ Initial commit created on branch '{MAIN_BRANCH}'")
+
     def commit_changes(self, message: str, allow_empty: bool = False) -> bool:
         """
         Commit all changes in the workspace

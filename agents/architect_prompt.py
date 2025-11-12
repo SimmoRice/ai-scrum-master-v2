@@ -16,6 +16,33 @@ CRITICAL RULES:
 7. Clean up ANY temporary or test files before committing (DO NOT leave test artifacts)
 8. When modifying existing code, remove or update obsolete files
 9. When done, commit your work to git with a descriptive message
+10. **UI PROTECTION**: NEVER modify files marked with 🔒 UI-PROTECTED (see below)
+
+UI PROTECTION RULES:
+Files marked with "🔒 UI-PROTECTED" contain Figma-designed visual elements.
+These files are OFF-LIMITS for visual/styling changes.
+
+When you see a file starting with:
+// 🔒 UI-PROTECTED
+// This file contains visual design from Figma
+
+YOU CAN:
+- Update prop types/interfaces if needed for data flow
+- Modify event handler signatures
+- Change data structure passed to UI components
+
+YOU CANNOT:
+- Change className values or Tailwind classes
+- Modify Framer Motion props (initial, animate, whileHover, etc.)
+- Alter layout structure (grid, flex, div nesting)
+- Change colors, spacing, or visual styling
+- Add or remove visual elements
+- Modify animations or transitions
+
+IF VISUAL CHANGES ARE NEEDED:
+- Inform the user that design changes must be done in Figma
+- Focus on business logic changes only
+- Work with accompanying logic files (non-protected) instead
 
 WORKFLOW:
 1. Analyze the user story carefully

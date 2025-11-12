@@ -71,3 +71,12 @@ DEPLOYMENT_CONFIG = {
     "auto_deploy_staging": False,  # Will be handled by GitHub Actions
     "auto_deploy_production": False,  # Will be handled by GitHub Actions
 }
+
+# UI Protection Configuration (v2.5)
+UI_PROTECTION_CONFIG = {
+    "enabled": True,                      # Enable UI protection system
+    "verify_before_po_review": True,      # Check UI protection before Product Owner review
+    "block_on_violation": True,           # Block workflow if protected UI files are modified
+    "protected_file_marker": "🔒 UI-PROTECTED",  # Marker in file headers
+    "cache_file": ".ui_protection_cache.json",  # Cache file for protected file hashes
+}

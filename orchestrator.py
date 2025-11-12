@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from claude_agent import ClaudeCodeAgent
 from git_manager import GitManager
 from logger import WorkflowLogger
+from ui_protector import UIProtectionOrchestrator
 from agents import (
     ARCHITECT_PROMPT,
     SECURITY_PROMPT,
@@ -108,6 +109,9 @@ class Orchestrator:
         # GitHub integration
         self.github = GitHubIntegration(GITHUB_CONFIG) if GITHUB_CONFIG.get('enabled') else None
 
+        # UI protection integration
+        self.ui_protector = UIProtectionOrchestrator(self.workspace)
+
         # Initialize workspace (only creates git repo for external workspaces)
         self._initialize_workspace()
 
@@ -184,6 +188,16 @@ class Orchestrator:
             if not success:
                 print("\n❌ Workflow failed during execution")
                 self.logger.log_workflow_complete("failed")
+                return result
+
+            # UI Protection Check (before Product Owner review)
+            if not self._verify_ui_protection():
+                print("\n❌ UI Protection Violation Detected")
+                print("   Agents modified protected Figma-designed UI")
+                print("   Please revert UI changes or update design in Figma")
+                result.errors.append("UI protection violated - protected files were modified")
+                result.approved = False
+                self.logger.log_workflow_complete("ui_protection_violated")
                 return result
 
             # Product Owner review
@@ -615,6 +629,9 @@ Provide detailed reasoning and specific feedback if requesting revisions."""
         """
         print("\n🧹 Cleaning up old workflow branches...")
 
+        # Ensure repository has at least one commit before branch operations
+        self.git.ensure_initial_commit()
+
         # Ensure we're on main before deleting branches
         self.git.checkout_branch(MAIN_BRANCH)
 
@@ -646,6 +663,23 @@ Provide detailed reasoning and specific feedback if requesting revisions."""
                 self.git.delete_branch(branch, force=True)
 
         print("✅ Downstream branches cleared (architect-branch preserved)\n")
+
+    def _verify_ui_protection(self) -> bool:
+        """
+        Verify that no protected UI files were modified by agents
+
+        Returns:
+            True if all protected files are unchanged, False otherwise
+        """
+        # Check if there are any protected files
+        protected_files = self.ui_protector.protector.list_protected_files()
+
+        if not protected_files:
+            # No protected files - skip verification
+            return True
+
+        print("\n🔒 Verifying UI Protection...")
+        return self.ui_protector.verify_before_commit()
 
     def get_workspace_status(self) -> Dict[str, Any]:
         """
