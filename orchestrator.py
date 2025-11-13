@@ -448,7 +448,12 @@ Please address the feedback and improve your implementation."""
 
         security = ClaudeCodeAgent("Security", self.agent_workspace, SECURITY_PROMPT)
 
-        sec_task = """Review the implementation created by the Architect.
+        sec_task = f"""ORIGINAL USER STORY:
+{user_story}
+
+---
+
+Review the implementation created by the Architect.
 
 Identify and fix any security vulnerabilities:
 - Input validation
@@ -458,7 +463,8 @@ Identify and fix any security vulnerabilities:
 - Sensitive data handling
 - Error handling
 
-Edit files directly to add security improvements, then commit your changes."""
+If this is an analysis-only task (see system prompt), create a security analysis document.
+Otherwise, edit files directly to add security improvements, then commit your changes."""
 
         # Execute with retry logic
         sec_result = self._execute_agent_with_retry(
@@ -494,7 +500,12 @@ Edit files directly to add security improvements, then commit your changes."""
 
         tester = ClaudeCodeAgent("Tester", self.agent_workspace, TESTER_PROMPT)
 
-        test_task = """Create comprehensive tests for the implementation.
+        test_task = f"""ORIGINAL USER STORY:
+{user_story}
+
+---
+
+Create comprehensive tests for the implementation.
 
 Write actual, runnable tests covering:
 - Happy path functionality
@@ -502,7 +513,8 @@ Write actual, runnable tests covering:
 - Error handling
 - Security validations
 
-Then RUN the tests to verify they pass. Commit test files and results."""
+If this is an analysis-only task (see system prompt), create a test plan document.
+Otherwise, create and RUN actual tests to verify they pass. Commit test files and results."""
 
         # Execute with retry logic
         test_result = self._execute_agent_with_retry(

@@ -1,0 +1,66 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    nodejs \
+    npm \
+    build-essential \
+    sqlite3 \
+    openssh-client \
+    nginx \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create working directory
+WORKDIR /opt/ai-scrum-master
+
+# Copy application files
+COPY . .
+
+# Setup Python virtual environment and install dependencies
+RUN python3 -m venv venv && \
+    . venv/bin/activate && \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt && \
+    pip install -r orchestrator_service/requirements.txt
+
+# Create necessary directories
+RUN mkdir -p logs data /root/.ssh
+
+# Generate SSH key for worker communication
+RUN ssh-keygen -t ed25519 -C "orchestrator@ai-scrum" -f /root/.ssh/id_orchestrator -N ""
+
+# Configure nginx
+COPY deployment/nginx/orchestrator.conf /etc/nginx/sites-available/orchestrator
+RUN ln -sf /etc/nginx/sites-available/orchestrator /etc/nginx/sites-enabled/ && \
+    rm -f /etc/nginx/sites-enabled/default
+
+# Expose ports
+EXPOSE 8000 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Start script
+COPY deployment/scripts/start-orchestrator.sh /start.sh
+RUN chmod +x /start.sh
+
+CMD ["/start.sh"]

@@ -24,6 +24,16 @@ if [ ! -f "main.py" ]; then
     exit 1
 fi
 
+# Check for virtual environment
+if [ ! -d "env" ]; then
+    echo -e "${RED}❌ Error: Virtual environment 'env' not found${NC}"
+    echo "   Please run: python3 -m venv env && source env/bin/activate && pip install -r requirements.txt"
+    exit 1
+fi
+
+# Activate virtual environment
+source env/bin/activate
+
 # Check Python version
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}❌ Error: python3 not found${NC}"

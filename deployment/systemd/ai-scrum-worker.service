@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Scrum Master Worker
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ai-scrum-master
+Environment="PATH=/opt/ai-scrum-master/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/ai-scrum-master/.env
+ExecStart=/opt/ai-scrum-master/venv/bin/python /opt/ai-scrum-master/worker/distributed_worker.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

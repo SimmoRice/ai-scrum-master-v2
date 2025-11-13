@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.orchestrator
+    image: ai-scrum-orchestrator:latest
+    container_name: ai-scrum-orchestrator
+    hostname: orchestrator
+    ports:
+      - "8000:8000"  # API
+      - "3000:3000"  # Dashboard (future)
+    environment:
+      - MODE=orchestrator
+      - ORCHESTRATOR_HOST=0.0.0.0
+      - ORCHESTRATOR_PORT=8000
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO:-your-org/your-repo}
+      - GITHUB_ISSUE_LABELS=ai-ready
+      - GITHUB_POLL_INTERVAL=60
+      - WORKER_IPS=worker-1,worker-2,worker-3,worker-4,worker-5
+      - LOG_LEVEL=INFO
+    volumes:
+      - orchestrator-data:/opt/ai-scrum-master/data
+      - orchestrator-logs:/opt/ai-scrum-master/logs
+    networks:
+      - ai-scrum-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    image: ai-scrum-worker:latest
+    deploy:
+      replicas: 5
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - WORKSPACE_DIR=/workspace
+      - WORKER_POLL_INTERVAL=30
+      - LOG_LEVEL=INFO
+    volumes:
+      - worker-workspace:/workspace
+    networks:
+      - ai-scrum-network
+    depends_on:
+      - orchestrator
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://orchestrator:8000/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+networks:
+  ai-scrum-network:
+    driver: bridge
+
+volumes:
+  orchestrator-data:
+  orchestrator-logs:
+  worker-workspace:
