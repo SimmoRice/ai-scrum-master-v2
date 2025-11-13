@@ -488,11 +488,16 @@ Otherwise, edit files directly to add security improvements, then commit your ch
         result.agents.append(sec_result)  # Track for PR body
 
         # VALIDATION GATE: Ensure Security completed work
+        # Allow proceeding if Security explicitly approved without finding issues
         if not self.git.branch_has_commits(SECURITY_BRANCH, ARCHITECT_BRANCH):
-            error_msg = "❌ Cannot proceed: Security hasn't committed any changes"
-            print(f"\n{error_msg}")
-            result.errors.append(error_msg)
-            return False
+            # Check if Security explicitly approved the implementation
+            if self._agent_approved_without_changes(sec_result):
+                print("\n✅ Security approved implementation (no security issues found)")
+            else:
+                error_msg = "❌ Cannot proceed: Security hasn't committed any changes"
+                print(f"\n{error_msg}")
+                result.errors.append(error_msg)
+                return False
 
         # Phase 3: Testing
         print("\n🧪 PHASE 3: TESTER")
@@ -538,6 +543,43 @@ Otherwise, create and RUN actual tests to verify they pass. Commit test files an
         result.agents.append(test_result)  # Track for PR body
 
         return True
+
+    def _agent_approved_without_changes(self, agent_result: Dict[str, Any]) -> bool:
+        """
+        Check if an agent (Security or Tester) explicitly approved without finding issues
+
+        This allows workflows to proceed when agents determine no changes are needed.
+
+        Args:
+            agent_result: Result dictionary from agent execution
+
+        Returns:
+            True if agent explicitly approved without issues, False otherwise
+        """
+        if not agent_result.get('success'):
+            return False
+
+        response = agent_result.get('result', '').lower()
+
+        # Keywords that indicate explicit approval without changes needed
+        approval_indicators = [
+            'approve',
+            'approved',
+            'no changes needed',
+            'no changes required',
+            'no security issues',
+            'no vulnerabilities',
+            'no issues found',
+            'already secure',
+            'excellent security',
+            'passes security review',
+            'security review passed',
+            'no security improvements needed',
+            'implementation is secure',
+        ]
+
+        # Check if response contains approval indicators
+        return any(indicator in response for indicator in approval_indicators)
 
     def _check_workspace_cleanliness(self) -> tuple[bool, list[str]]:
         """
