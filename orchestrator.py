@@ -85,13 +85,16 @@ class Orchestrator:
     - Coordinate revisions
     """
 
-    def __init__(self, workspace_dir: Optional[Path] = None):
+    def __init__(self, workspace_dir: Optional[Path] = None, verbose: bool = False):
         """
         Initialize the orchestrator
 
         Args:
             workspace_dir: Optional custom workspace directory
+            verbose: If True, stream Claude Code output in real-time
         """
+        self.verbose = verbose
+
         # Determine workspace and git root
         if workspace_dir:
             # External workspace mode - work in the specified directory
@@ -389,7 +392,7 @@ class Orchestrator:
             self.git.checkout_branch(MAIN_BRANCH)
             self.git.create_branch(ARCHITECT_BRANCH, from_branch=MAIN_BRANCH)
 
-        architect = ClaudeCodeAgent("Architect", self.agent_workspace, ARCHITECT_PROMPT)
+        architect = ClaudeCodeAgent("Architect", self.agent_workspace, ARCHITECT_PROMPT, verbose=self.verbose)
 
         arch_task = user_story
         if is_revision and result.po_decision:
@@ -446,7 +449,7 @@ Please address the feedback and improve your implementation."""
         # Create security branch from architect (inherits Architect's work)
         self.git.create_branch(SECURITY_BRANCH, from_branch=ARCHITECT_BRANCH)
 
-        security = ClaudeCodeAgent("Security", self.agent_workspace, SECURITY_PROMPT)
+        security = ClaudeCodeAgent("Security", self.agent_workspace, SECURITY_PROMPT, verbose=self.verbose)
 
         sec_task = f"""ORIGINAL USER STORY:
 {user_story}
@@ -498,7 +501,7 @@ Otherwise, edit files directly to add security improvements, then commit your ch
         # Create tester branch from security (inherits Architect + Security's work)
         self.git.create_branch(TESTER_BRANCH, from_branch=SECURITY_BRANCH)
 
-        tester = ClaudeCodeAgent("Tester", self.agent_workspace, TESTER_PROMPT)
+        tester = ClaudeCodeAgent("Tester", self.agent_workspace, TESTER_PROMPT, verbose=self.verbose)
 
         test_task = f"""ORIGINAL USER STORY:
 {user_story}
@@ -590,7 +593,7 @@ Otherwise, create and RUN actual tests to verify they pass. Commit test files an
                 print(issue)
             print("These may be test artifacts that should be removed.\n")
 
-        po = ClaudeCodeAgent("ProductOwner", self.agent_workspace, PRODUCT_OWNER_PROMPT)
+        po = ClaudeCodeAgent("ProductOwner", self.agent_workspace, PRODUCT_OWNER_PROMPT, verbose=self.verbose)
 
         # Get list of tracked files (excludes node_modules, .git, etc.)
         files = self.git.list_files()

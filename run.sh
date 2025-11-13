@@ -51,6 +51,7 @@ fi
 
 # Parse flags
 WORKSPACE_DIR=""
+VERBOSE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --help|-h)
@@ -60,11 +61,13 @@ while [[ $# -gt 0 ]]; do
             echo "  ./run.sh                           Start interactive mode"
             echo "  ./run.sh \"user story\"              Execute a single task"
             echo "  ./run.sh --workspace PATH \"story\"  Work on external project"
+            echo "  ./run.sh --verbose \"story\"         Stream Claude Code output in real-time"
             echo "  ./run.sh --help                    Show this help message"
             echo ""
             echo "Options:"
             echo "  --workspace PATH    Work on an external project directory"
             echo "                      Can be absolute or relative path"
+            echo "  --verbose, -v       Stream Claude Code output in real-time"
             echo ""
             echo "Examples:"
             echo "  # Interactive mode (internal workspace)"
@@ -99,6 +102,10 @@ while [[ $# -gt 0 ]]; do
         --workspace)
             WORKSPACE_DIR="$2"
             shift 2
+            ;;
+        --verbose|-v)
+            VERBOSE="--verbose"
+            shift
             ;;
         *)
             break
@@ -138,7 +145,7 @@ if [ $# -eq 0 ]; then
         exit 1
     fi
 
-    python3 main.py
+    python3 main.py $VERBOSE
     exit 0
 fi
 
@@ -161,16 +168,17 @@ from orchestrator import Orchestrator
 # Capture user story and workspace from command line
 user_story = """${USER_STORY}"""
 workspace_dir = "${WORKSPACE_DIR}" if "${WORKSPACE_DIR}" else None
+verbose = "${VERBOSE}" == "--verbose"
 
 print("Initializing AI Scrum Master...")
 try:
-    # Pass workspace_dir to Orchestrator if provided
+    # Pass workspace_dir and verbose to Orchestrator if provided
     if workspace_dir:
         workspace_path = Path(workspace_dir)
         print(f"Using external workspace: {workspace_path}")
-        orchestrator = Orchestrator(workspace_dir=workspace_path)
+        orchestrator = Orchestrator(workspace_dir=workspace_path, verbose=verbose)
     else:
-        orchestrator = Orchestrator()
+        orchestrator = Orchestrator(verbose=verbose)
 
     print("✅ Ready! Starting workflow...\n")
 

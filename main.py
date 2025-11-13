@@ -178,18 +178,26 @@ def main():
         action='version',
         version=f'AI Scrum Master v{VERSION}'
     )
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Stream Claude Code output in real-time (verbose mode)'
+    )
 
-    # Parse arguments (this will handle --version and exit automatically)
-    parser.parse_args()
+    # Parse arguments
+    args = parser.parse_args()
 
     # Load environment variables
     load_dotenv()
 
     print_banner()
 
+    if args.verbose:
+        print("🔊 VERBOSE MODE ENABLED - Claude Code output will stream in real-time\n")
+
     # Initialize orchestrator
     try:
-        orchestrator = Orchestrator()
+        orchestrator = Orchestrator(verbose=args.verbose)
     except Exception as e:
         print(f"❌ Failed to initialize: {e}")
         print("\nMake sure:")
