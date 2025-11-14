@@ -53,6 +53,7 @@ class DistributedWorker:
         """
         self.worker_id = worker_id
         self.client = OrchestratorClient(orchestrator_url)
+        self.client.set_worker_id(worker_id)
         self.workspace_base = Path(os.getenv("WORKSPACE_DIR", "/opt/ai-scrum-master/workspace"))
         self.workspace_base.mkdir(parents=True, exist_ok=True)
 
