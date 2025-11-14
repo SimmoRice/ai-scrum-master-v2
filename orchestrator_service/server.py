@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from orchestrator_service.github_client import GitHubClient
 from orchestrator_service.work_queue import WorkQueue
 from orchestrator_service.worker_manager import WorkerManager
+from orchestrator_service.simple_worker_tracker import SimpleWorkerTracker
 
 # Load environment
 load_dotenv()
@@ -58,6 +59,7 @@ app.add_middleware(
 github_client: Optional[GitHubClient] = None
 work_queue: Optional[WorkQueue] = None
 worker_manager: Optional[WorkerManager] = None
+worker_tracker: Optional[SimpleWorkerTracker] = None
 
 
 # Pydantic models
@@ -82,7 +84,7 @@ class WorkFailed(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    global github_client, work_queue, worker_manager
+    global github_client, work_queue, worker_manager, worker_tracker
 
     logger.info("Starting AI Scrum Master Orchestrator...")
 
@@ -104,13 +106,14 @@ async def startup_event():
     work_queue = WorkQueue()
     logger.info("Work queue initialized")
 
-    # Initialize worker manager
+    # Initialize worker manager or tracker
     worker_ips = os.getenv("WORKER_IPS", "").split(",")
     worker_ips = [ip.strip() for ip in worker_ips if ip.strip()]
 
     if not worker_ips:
-        logger.warning("No worker IPs configured - running in standalone mode")
+        logger.info("No worker IPs configured - using dynamic worker tracker")
         worker_manager = None
+        worker_tracker = SimpleWorkerTracker(timeout_minutes=5)
     else:
         ssh_key = os.getenv("WORKER_SSH_KEY", "/root/.ssh/id_orchestrator")
         ssh_user = os.getenv("WORKER_SSH_USER", "root")
@@ -118,6 +121,7 @@ async def startup_event():
         worker_manager = WorkerManager(worker_ips, ssh_key, ssh_user)
         await worker_manager.initialize()
         logger.info(f"Worker manager initialized with {len(worker_ips)} workers")
+        worker_tracker = None
 
     # Start background tasks
     if github_client:
@@ -153,8 +157,15 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    worker_count = len(worker_manager.workers) if worker_manager else 0
-    active_workers = sum(1 for w in (worker_manager.workers.values() if worker_manager else []) if w.status == "available")
+    if worker_manager:
+        worker_count = len(worker_manager.workers)
+        active_workers = sum(1 for w in worker_manager.workers.values() if w.status == "available")
+    elif worker_tracker:
+        worker_count = worker_tracker.get_worker_count()
+        active_workers = worker_tracker.get_available_worker_count()
+    else:
+        worker_count = 0
+        active_workers = 0
 
     return {
         "status": "healthy",
@@ -185,15 +196,21 @@ async def get_next_work(worker_id: str):
     if not work_queue:
         raise HTTPException(status_code=503, detail="Work queue not initialized")
 
+    # Update worker activity tracking
     if worker_manager:
-        # Update worker last seen
         await worker_manager.update_worker_activity(worker_id)
+    elif worker_tracker:
+        worker_tracker.update_activity(worker_id)
 
     # Get next work item
     work_item = work_queue.get_next_work(worker_id)
 
     if not work_item:
         return {"work_available": False}
+
+    # Update tracker with task assignment
+    if worker_tracker:
+        worker_tracker.update_activity(worker_id, work_item["issue_number"])
 
     logger.info(f"Assigned issue #{work_item['issue_number']} to {worker_id}")
 
@@ -287,19 +304,29 @@ async def mark_work_failed(result: WorkFailed):
 @app.get("/workers")
 async def list_workers():
     """List all workers and their status"""
-    if not worker_manager:
-        return {"workers": []}
-
     workers = []
-    for worker_id, worker in worker_manager.workers.items():
-        workers.append({
-            "id": worker_id,
-            "ip": worker.ip,
-            "status": worker.status,
-            "current_task": worker.current_task,
-            "last_seen": worker.last_seen.isoformat() if worker.last_seen else None,
-            "health": worker.health,
-        })
+
+    if worker_manager:
+        for worker_id, worker in worker_manager.workers.items():
+            workers.append({
+                "id": worker_id,
+                "ip": worker.ip,
+                "status": worker.status,
+                "current_task": worker.current_task,
+                "last_seen": worker.last_seen.isoformat() if worker.last_seen else None,
+                "health": worker.health,
+            })
+    elif worker_tracker:
+        active_workers = worker_tracker.get_active_workers()
+        for worker_id, worker in active_workers.items():
+            workers.append({
+                "id": worker_id,
+                "status": "busy" if worker.current_task else "available",
+                "current_task": worker.current_task,
+                "last_seen": worker.last_seen.isoformat(),
+                "first_seen": worker.first_seen.isoformat(),
+                "total_tasks": worker.total_tasks,
+            })
 
     return {"workers": workers}
 
