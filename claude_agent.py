@@ -78,6 +78,86 @@ class ClaudeCodeAgent:
 
         return sanitized
 
+    def _display_verbose_summary(self, stdout_lines: list) -> None:
+        """
+        Parse and display structured summary from Claude Code JSON output
+
+        Args:
+            stdout_lines: List of stdout lines from Claude Code execution
+        """
+        try:
+            # Find and parse JSON output (usually last line)
+            json_output = None
+            for line in reversed(stdout_lines):
+                stripped = line.strip()
+                if stripped.startswith('{') and stripped.endswith('}'):
+                    try:
+                        json_output = json.loads(stripped)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+
+            if not json_output:
+                return
+
+            # Extract key metrics
+            print(f"\n{'═'*60}")
+            print(f"📊 AGENT EXECUTION SUMMARY")
+            print(f"{'═'*60}")
+
+            # Duration
+            if 'duration_ms' in json_output:
+                duration_s = json_output['duration_ms'] / 1000
+                minutes = int(duration_s // 60)
+                seconds = int(duration_s % 60)
+                print(f"⏱️  Duration: {minutes}m {seconds}s ({duration_s:.1f}s total)")
+
+            # Turns
+            if 'num_turns' in json_output:
+                print(f"🔄 Turns: {json_output['num_turns']}")
+
+            # Cost
+            if 'total_cost_usd' in json_output:
+                print(f"💰 Total Cost: ${json_output['total_cost_usd']:.4f}")
+
+            # Model usage breakdown
+            if 'modelUsage' in json_output and json_output['modelUsage']:
+                print(f"\n📈 Model Usage Breakdown:")
+                for model, usage in json_output['modelUsage'].items():
+                    cost = usage.get('costUSD', 0)
+                    input_tokens = usage.get('inputTokens', 0)
+                    output_tokens = usage.get('outputTokens', 0)
+                    print(f"   • {model}:")
+                    print(f"     - Cost: ${cost:.4f}")
+                    if input_tokens or output_tokens:
+                        print(f"     - Tokens: {input_tokens:,} in / {output_tokens:,} out")
+
+            # Result summary (first 300 chars)
+            if 'result' in json_output and json_output['result']:
+                result = json_output['result'].strip()
+                if len(result) > 300:
+                    result = result[:300] + "..."
+                print(f"\n📝 Result Summary:")
+                # Split into lines for better readability
+                for line in result.split('\n')[:5]:  # Show first 5 lines
+                    print(f"   {line}")
+                if result.count('\n') > 5:
+                    print(f"   ... ({result.count(chr(10)) - 5} more lines)")
+
+            # Success status
+            if 'type' in json_output:
+                if json_output.get('type') == 'result' and json_output.get('subtype') == 'success':
+                    print(f"\n✅ Status: Success")
+                elif json_output.get('is_error'):
+                    print(f"\n❌ Status: Error")
+
+            print(f"{'═'*60}\n")
+
+        except Exception as e:
+            # Silent fail - verbose summary is optional enhancement
+            # Don't disrupt execution if parsing fails
+            pass
+
     def execute_task(
         self,
         task: str,
@@ -214,6 +294,9 @@ class ClaudeCodeAgent:
                     print(f"\n{'─'*60}")
                     print(f"📡 End of Claude Code output")
                     print(f"{'─'*60}\n")
+
+                    # Parse and display structured summary
+                    self._display_verbose_summary(stdout_lines)
                 else:
                     # Normal mode: Capture output silently
                     result = subprocess.run(

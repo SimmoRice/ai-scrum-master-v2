@@ -85,15 +85,17 @@ class Orchestrator:
     - Coordinate revisions
     """
 
-    def __init__(self, workspace_dir: Optional[Path] = None, verbose: bool = False):
+    def __init__(self, workspace_dir: Optional[Path] = None, verbose: bool = False, github: Any = None):
         """
         Initialize the orchestrator
 
         Args:
             workspace_dir: Optional custom workspace directory
             verbose: If True, stream Claude Code output in real-time
+            github: Optional GitHub integration object (prevents auto-merge when using PR workflow)
         """
         self.verbose = verbose
+        self.github = github  # Store GitHub integration to prevent auto-merge
 
         # Determine workspace and git root
         if workspace_dir:
@@ -249,7 +251,19 @@ class Orchestrator:
                         self.logger.log_error(f"PR creation failed: {e}")
 
                 # Merge to main if configured (deprecated in v2.2, use PR workflow instead)
-                if WORKFLOW_CONFIG['auto_merge_on_approval'] and not result.pr_url:
+                # Only merge if we're NOT using GitHub integration (which requires PR workflow)
+                github_integration = hasattr(self, 'github') and self.github is not None
+
+                # DEBUG: Log the condition values
+                print(f"\n🔍 DEBUG - Auto-merge check:")
+                print(f"   auto_merge_on_approval: {WORKFLOW_CONFIG['auto_merge_on_approval']}")
+                print(f"   result.pr_url: {result.pr_url}")
+                print(f"   hasattr(self, 'github'): {hasattr(self, 'github')}")
+                print(f"   self.github is not None: {self.github is not None if hasattr(self, 'github') else 'N/A'}")
+                print(f"   github_integration: {github_integration}")
+                print(f"   Should auto-merge? {WORKFLOW_CONFIG['auto_merge_on_approval'] and not result.pr_url and not github_integration}")
+
+                if WORKFLOW_CONFIG['auto_merge_on_approval'] and not result.pr_url and not github_integration:
                     print("\n🔀 Merging approved work to main branch...")
                     if self.git.merge_workflow_to_main():
                         print("✅ Successfully merged to main!")
@@ -257,6 +271,8 @@ class Orchestrator:
                     else:
                         print("⚠️  Merge failed - manual intervention needed")
                         self.logger.log_error("Merge to main failed")
+                else:
+                    print("\n⏭️  Skipping auto-merge (using PR workflow instead)")
 
                 self.logger.log_workflow_complete("approved")
                 return result

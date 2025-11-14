@@ -19,16 +19,18 @@ from utils import validate_issue_number, validate_github_label, sanitize_github_
 class GitHubIntegration:
     """GitHub integration using GitHub CLI (gh)"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], workspace_dir: Optional[Any] = None):
         """
         Initialize GitHub integration
 
         Args:
             config: Configuration dict with GitHub settings
+            workspace_dir: Optional workspace directory path for git/gh commands
         """
         self.config = config
         self.base_branch = config.get('pr_target_branch', 'staging')
         self.include_checklist = config.get('include_review_checklist', True)
+        self.workspace_dir = str(workspace_dir) if workspace_dir else None
 
     @staticmethod
     def _validate_issue_number(issue_number: int) -> None:
@@ -164,6 +166,52 @@ class GitHubIntegration:
             print(f"⚠️  Timeout updating issue #{issue_number}")
             return False
 
+    def _ensure_base_branch_exists(self) -> str:
+        """
+        Ensure the base branch exists, creating it from main if needed
+
+        Returns:
+            The base branch name to use for PR
+        """
+        # Check if staging branch exists
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--verify', self.base_branch],
+                cwd=self.workspace_dir,
+                capture_output=True,
+                timeout=5
+            )
+
+            if result.returncode == 0:
+                print(f"✓ Base branch '{self.base_branch}' exists")
+                return self.base_branch
+
+        except subprocess.TimeoutExpired:
+            pass
+
+        # Staging branch doesn't exist - check if we should create it or use main
+        print(f"⚠️  Base branch '{self.base_branch}' doesn't exist")
+
+        # Check if main branch exists
+        try:
+            main_check = subprocess.run(
+                ['git', 'rev-parse', '--verify', 'main'],
+                cwd=self.workspace_dir,
+                capture_output=True,
+                timeout=5
+            )
+
+            if main_check.returncode == 0:
+                print(f"→ Using 'main' as base branch instead")
+                return 'main'
+
+        except subprocess.TimeoutExpired:
+            pass
+
+        # Default to main
+        print("→ Defaulting to 'main' as base branch")
+        return 'main'
+
     def create_pr(
         self,
         workflow_result: Any,
@@ -189,19 +237,23 @@ class GitHubIntegration:
                 "Run: gh auth login"
             )
 
+        # Ensure base branch exists and get the actual base to use
+        actual_base_branch = self._ensure_base_branch_exists()
+
         # Generate PR title - sanitize user story
         sanitized_story = sanitize_github_text(workflow_result.user_story, max_length=200)
         pr_title = f"Feature: {sanitized_story[:60]}"
         if len(sanitized_story) > 60:
             pr_title += "..."
 
-        # Generate PR body with checklist
-        pr_body = self._generate_pr_body(workflow_result, issue_number)
+        # Generate PR body with checklist (pass actual base branch)
+        pr_body = self._generate_pr_body(workflow_result, issue_number, actual_base_branch)
 
         # Get current branch name (feature branch created by tester)
         try:
             branch_result = subprocess.run(
                 ['git', 'branch', '--show-current'],
+                cwd=self.workspace_dir,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -218,10 +270,10 @@ class GitHubIntegration:
                 'gh', 'pr', 'create',
                 '--title', pr_title,
                 '--body', pr_body,
-                '--base', self.base_branch,
+                '--base', actual_base_branch,
                 '--head', head_branch,
                 '--label', 'needs-review'
-            ], capture_output=True, text=True, timeout=30)
+            ], cwd=self.workspace_dir, capture_output=True, text=True, timeout=30)
 
             if result.returncode == 0:
                 pr_url = result.stdout.strip()
@@ -242,7 +294,7 @@ class GitHubIntegration:
                         '--head', head_branch,
                         '--json', 'url',
                         '--limit', '1'
-                    ], capture_output=True, text=True, timeout=5)
+                    ], cwd=self.workspace_dir, capture_output=True, text=True, timeout=5)
 
                     if existing_pr.returncode == 0:
                         prs = json.loads(existing_pr.stdout)
@@ -257,9 +309,14 @@ class GitHubIntegration:
     def _generate_pr_body(
         self,
         workflow_result: Any,
-        issue_number: Optional[int]
+        issue_number: Optional[int],
+        base_branch: str = None
     ) -> str:
         """Generate PR body with review checklist"""
+
+        # Use provided base branch or fall back to configured one
+        if base_branch is None:
+            base_branch = self.base_branch
 
         # Calculate agent metrics
         architect = workflow_result.agents[0]
@@ -270,7 +327,8 @@ class GitHubIntegration:
         # Get file changes from git
         try:
             diff_result = subprocess.run(
-                ['git', 'diff', '--name-status', self.base_branch],
+                ['git', 'diff', '--name-status', base_branch],
+                cwd=self.workspace_dir,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -353,14 +411,14 @@ Before merging, please verify:
 
 1. ✅ Review code changes above
 2. ✅ Complete the checklist
-3. ✅ Merge to `{self.base_branch}` branch (NOT main)
+3. ✅ Merge to `{base_branch}` branch{" (NOT main)" if base_branch != "main" else ""}
 4. ✅ Test on staging environment
 5. ✅ Create production release when ready
 
 ---
 
 🤖 Generated by AI Scrum Master v2.2
-⚠️  **IMPORTANT:** Merge to `{self.base_branch}` first, then to `main` after validation
+⚠️  **IMPORTANT:** {"Merge to staging first, then to main after validation" if base_branch != "main" else "Thoroughly test before deploying to production"}
 """
         return body
 
