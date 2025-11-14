@@ -24,9 +24,9 @@ from dotenv import load_dotenv
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from orchestrator.github_client import GitHubClient
-from orchestrator.work_queue import WorkQueue
-from orchestrator.worker_manager import WorkerManager
+from orchestrator_service.github_client import GitHubClient
+from orchestrator_service.work_queue import WorkQueue
+from orchestrator_service.worker_manager import WorkerManager
 
 # Load environment
 load_dotenv()
