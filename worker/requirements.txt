@@ -1,0 +1,7 @@
+# Worker-specific dependencies
+
+# HTTP client for orchestrator communication
+requests==2.31.0
+
+# Environment management (also in base requirements, but needed here)
+python-dotenv==1.0.0
