@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from orchestrator_service.github_client import GitHubClient
+from orchestrator_service.multi_repo_manager import MultiRepoManager
 from orchestrator_service.work_queue import WorkQueue
 from orchestrator_service.worker_manager import WorkerManager
 from orchestrator_service.simple_worker_tracker import SimpleWorkerTracker
@@ -57,6 +58,7 @@ app.add_middleware(
 
 # Global state
 github_client: Optional[GitHubClient] = None
+multi_repo_manager: Optional[MultiRepoManager] = None
 work_queue: Optional[WorkQueue] = None
 worker_manager: Optional[WorkerManager] = None
 worker_tracker: Optional[SimpleWorkerTracker] = None
@@ -84,7 +86,7 @@ class WorkFailed(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    global github_client, work_queue, worker_manager, worker_tracker
+    global github_client, multi_repo_manager, work_queue, worker_manager, worker_tracker
 
     logger.info("Starting AI Scrum Master Orchestrator...")
 
@@ -93,14 +95,27 @@ async def startup_event():
     if not github_token:
         logger.error("GITHUB_TOKEN not set - GitHub integration disabled")
         github_client = None
+        multi_repo_manager = None
     else:
-        github_repo = os.getenv("GITHUB_REPO")
-        if not github_repo:
-            logger.error("GITHUB_REPO not set")
-            raise RuntimeError("GITHUB_REPO environment variable required")
+        # Check for multi-repo configuration first
+        github_repos = os.getenv("GITHUB_REPOS", "").split(",")
+        github_repos = [repo.strip() for repo in github_repos if repo.strip()]
 
-        github_client = GitHubClient(github_token, github_repo)
-        logger.info(f"GitHub client initialized for {github_repo}")
+        if github_repos:
+            # Multi-repo mode
+            multi_repo_manager = MultiRepoManager(github_token, github_repos)
+            github_client = None
+            logger.info(f"Multi-repo mode: monitoring {len(github_repos)} repositories")
+        else:
+            # Single-repo mode (backward compatibility)
+            github_repo = os.getenv("GITHUB_REPO")
+            if not github_repo:
+                logger.error("Neither GITHUB_REPOS nor GITHUB_REPO is set")
+                raise RuntimeError("GITHUB_REPOS or GITHUB_REPO environment variable required")
+
+            github_client = GitHubClient(github_token, github_repo)
+            multi_repo_manager = None
+            logger.info(f"Single-repo mode: {github_repo}")
 
     # Initialize work queue
     work_queue = WorkQueue()
@@ -124,7 +139,7 @@ async def startup_event():
         worker_tracker = None
 
     # Start background tasks
-    if github_client:
+    if github_client or multi_repo_manager:
         asyncio.create_task(poll_github_issues())
 
     if worker_manager:
@@ -167,6 +182,24 @@ async def health_check():
         worker_count = 0
         active_workers = 0
 
+    # Get repository info
+    if multi_repo_manager:
+        repos = multi_repo_manager.get_repositories()
+        github_info = {
+            "connected": True,
+            "mode": "multi-repo",
+            "repositories": repos,
+            "count": len(repos)
+        }
+    elif github_client:
+        github_info = {
+            "connected": True,
+            "mode": "single-repo",
+            "repository": github_client.repo
+        }
+    else:
+        github_info = {"connected": False}
+
     return {
         "status": "healthy",
         "workers": {
@@ -178,7 +211,7 @@ async def health_check():
             "in_progress": work_queue.in_progress_count() if work_queue else 0,
             "completed": work_queue.completed_count() if work_queue else 0,
         },
-        "github_connected": github_client is not None,
+        "github": github_info,
     }
 
 
@@ -241,6 +274,10 @@ async def mark_work_complete(result: WorkComplete):
         f"{'success' if result.success else 'failed'}"
     )
 
+    # Get work item to find repository
+    work_item = work_queue.items.get(result.issue_number)
+    repo = work_item.repository if work_item else None
+
     # Mark work as complete in queue
     work_queue.mark_complete(
         result.issue_number,
@@ -251,17 +288,25 @@ async def mark_work_complete(result: WorkComplete):
     )
 
     # Update GitHub issue
-    if github_client and result.success:
+    if result.success and repo:
         try:
-            await github_client.add_issue_comment(
-                result.issue_number,
-                f"✅ Implementation completed!\n\nPull Request: {result.pr_url}\n\n"
+            comment = (
+                f"✅ Implementation completed!\n\n"
+                f"Pull Request: {result.pr_url}\n\n"
                 f"Completed by: {result.worker_id}"
             )
-            await github_client.add_issue_label(result.issue_number, "ai-completed")
-            await github_client.remove_issue_label(result.issue_number, "ai-in-progress")
+
+            if multi_repo_manager:
+                await multi_repo_manager.add_issue_comment(repo, result.issue_number, comment)
+                await multi_repo_manager.add_issue_label(repo, result.issue_number, "ai-completed")
+                await multi_repo_manager.remove_issue_label(repo, result.issue_number, "ai-in-progress")
+            elif github_client:
+                await github_client.add_issue_comment(result.issue_number, comment)
+                await github_client.add_issue_label(result.issue_number, "ai-completed")
+                await github_client.remove_issue_label(result.issue_number, "ai-in-progress")
+
         except Exception as e:
-            logger.error(f"Failed to update GitHub issue #{result.issue_number}: {e}")
+            logger.error(f"Failed to update GitHub issue {repo}#{result.issue_number}: {e}")
 
     return {"status": "acknowledged"}
 
@@ -281,22 +326,34 @@ async def mark_work_failed(result: WorkFailed):
         f"Worker {result.worker_id} failed issue #{result.issue_number}: {result.error}"
     )
 
+    # Get work item to find repository
+    work_item = work_queue.items.get(result.issue_number)
+    repo = work_item.repository if work_item else None
+
     # Mark work as failed in queue
     work_queue.mark_failed(result.issue_number, result.worker_id, result.error)
 
     # Update GitHub issue
-    if github_client:
+    if repo:
         try:
-            await github_client.add_issue_comment(
-                result.issue_number,
-                f"❌ Implementation failed\n\nError: {result.error}\n\n"
+            comment = (
+                f"❌ Implementation failed\n\n"
+                f"Error: {result.error}\n\n"
                 f"Worker: {result.worker_id}\n\n"
                 f"This issue has been released for retry."
             )
-            await github_client.remove_issue_label(result.issue_number, "ai-in-progress")
-            await github_client.add_issue_label(result.issue_number, "ai-failed")
+
+            if multi_repo_manager:
+                await multi_repo_manager.add_issue_comment(repo, result.issue_number, comment)
+                await multi_repo_manager.remove_issue_label(repo, result.issue_number, "ai-in-progress")
+                await multi_repo_manager.add_issue_label(repo, result.issue_number, "ai-failed")
+            elif github_client:
+                await github_client.add_issue_comment(result.issue_number, comment)
+                await github_client.remove_issue_label(result.issue_number, "ai-in-progress")
+                await github_client.add_issue_label(result.issue_number, "ai-failed")
+
         except Exception as e:
-            logger.error(f"Failed to update GitHub issue #{result.issue_number}: {e}")
+            logger.error(f"Failed to update GitHub issue {repo}#{result.issue_number}: {e}")
 
     return {"status": "acknowledged"}
 
@@ -348,7 +405,7 @@ async def queue_status():
 
 async def poll_github_issues():
     """Background task: Poll GitHub for new issues"""
-    if not github_client:
+    if not github_client and not multi_repo_manager:
         return
 
     poll_interval = int(os.getenv("GITHUB_POLL_INTERVAL", "60"))
@@ -356,29 +413,46 @@ async def poll_github_issues():
 
     while True:
         try:
-            # Fetch issues with 'ai-ready' label
             label = os.getenv("GITHUB_ISSUE_LABELS", "ai-ready")
-            issues = await github_client.fetch_issues(labels=[label], state="open")
+
+            # Fetch issues from all repositories
+            if multi_repo_manager:
+                issues = await multi_repo_manager.fetch_all_issues(labels=[label], state="open")
+            else:
+                # Single-repo mode (backward compatibility)
+                issues = await github_client.fetch_issues(labels=[label], state="open")
+                # Add repository info for single-repo mode
+                for issue in issues:
+                    issue["repository"] = github_client.repo
 
             # Add new issues to work queue
             for issue in issues:
+                repo = issue.get("repository")
+                issue_number = issue["number"]
+
+                # Create unique identifier for issue (repo + issue number)
+                issue_key = f"{repo}#{issue_number}"
+
                 # Skip if already in queue
-                if work_queue.has_issue(issue["number"]):
+                if work_queue.has_issue(issue_number):
                     continue
 
                 # Add to queue
                 work_queue.add_work_item(
-                    issue_number=issue["number"],
+                    issue_number=issue_number,
                     title=issue["title"],
                     body=issue["body"],
                     labels=issue["labels"],
-                    repository=github_client.repo,
+                    repository=repo,
                 )
 
                 # Update issue labels
-                await github_client.add_issue_label(issue["number"], "ai-in-progress")
+                if multi_repo_manager:
+                    await multi_repo_manager.add_issue_label(repo, issue_number, "ai-in-progress")
+                else:
+                    await github_client.add_issue_label(issue_number, "ai-in-progress")
 
-                logger.info(f"Added issue #{issue['number']} to work queue: {issue['title']}")
+                logger.info(f"Added issue {repo}#{issue_number} to work queue: {issue['title']}")
 
         except Exception as e:
             logger.error(f"Error polling GitHub issues: {e}")
