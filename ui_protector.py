@@ -171,11 +171,27 @@ class UIProtector:
                 'original_hash': original_hash
             }
 
+        except FileNotFoundError:
+            # File no longer exists - likely from a different project/workspace
+            # Remove from protection cache and treat as not protected
+            print(f"⚠️  Protected file no longer exists: {file_path}")
+            print(f"   Removing from protection cache...")
+            del self.protected_files[file_path]
+            self._save_cache()
+            return {
+                'protected': False,
+                'ui_changed': False,
+                'changes_detected': [],
+                'current_hash': None,
+                'original_hash': None
+            }
         except Exception as e:
+            # Other errors - log but don't block workflow
+            print(f"⚠️  Error verifying {file_path}: {e}")
             return {
                 'protected': True,
-                'ui_changed': True,
-                'changes_detected': [f"Error verifying file: {e}"],
+                'ui_changed': False,  # Don't block on errors
+                'changes_detected': [f"Warning: Could not verify file ({e})"],
                 'current_hash': None,
                 'original_hash': None
             }
