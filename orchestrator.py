@@ -11,6 +11,7 @@ from claude_agent import ClaudeCodeAgent
 from git_manager import GitManager
 from logger import WorkflowLogger
 from ui_protector import UIProtectionOrchestrator
+from credit_checker import InsufficientCreditsError
 from agents import (
     ARCHITECT_PROMPT,
     SECURITY_PROMPT,
@@ -354,7 +355,11 @@ class Orchestrator:
 
             # Execute agent
             self.logger.log_agent_start(agent_name, task)
-            agent_result = agent.execute_task(task)
+            try:
+                agent_result = agent.execute_task(task)
+            except InsufficientCreditsError:
+                # Re-raise credit errors immediately - don't retry, let worker handle it
+                raise
             self.logger.log_agent_end(agent_name, agent_result)
             agent.print_result(agent_result)
 
