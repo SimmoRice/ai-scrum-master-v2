@@ -182,6 +182,56 @@ def delete_label(repo: str, label_name: str) -> bool:
         return False
 
 
+def enable_issues(repo: str) -> bool:
+    """
+    Enable issues for a repository
+
+    Args:
+        repo: Repository in format "owner/repo"
+
+    Returns:
+        True if successful or already enabled
+    """
+    try:
+        # Use gh api to enable issues
+        subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{repo}",
+                "-X", "PATCH",
+                "-f", "has_issues=true"
+            ],
+            capture_output=True,
+            check=True
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"  ⚠️  Could not enable issues: {e.stderr.decode()}")
+        return False
+
+
+def check_issues_enabled(repo: str) -> bool:
+    """
+    Check if issues are enabled for a repository
+
+    Args:
+        repo: Repository in format "owner/repo"
+
+    Returns:
+        True if issues are enabled
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{repo}", "--jq", ".has_issues"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip() == "true"
+    except subprocess.CalledProcessError:
+        return False
+
+
 def setup_labels(repo: str, include_optional: bool = False, reset: bool = False):
     """
     Setup labels for a repository
@@ -192,6 +242,19 @@ def setup_labels(repo: str, include_optional: bool = False, reset: bool = False)
         reset: Delete existing AI labels before creating
     """
     print(f"\n📋 Setting up labels for {repo}")
+
+    # Check if issues are enabled
+    print("  🔍 Checking if issues are enabled...")
+    if not check_issues_enabled(repo):
+        print("  ⚙️  Issues are disabled, enabling...")
+        if enable_issues(repo):
+            print("  ✅ Issues enabled")
+        else:
+            print("  ❌ Failed to enable issues - you may need to enable manually")
+            print(f"     Go to: https://github.com/{repo}/settings")
+            return
+    else:
+        print("  ✅ Issues are already enabled")
 
     # Get existing labels
     existing = get_existing_labels(repo)
