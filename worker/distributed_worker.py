@@ -299,27 +299,36 @@ Repository: {work_item['repository']}
         logger.info(f"📤 Creating pull request for issue #{issue_number}")
 
         try:
-            # Change to workspace directory
-            os.chdir(workspace)
-
-            # Configure git
+            # Configure git (using cwd parameter instead of changing global working directory)
             subprocess.run(
                 ["git", "config", "user.name", "AI Scrum Master"],
-                check=True, capture_output=True
+                cwd=str(workspace),
+                check=True,
+                capture_output=True
             )
             subprocess.run(
                 ["git", "config", "user.email", "ai@scrum-master.local"],
-                check=True, capture_output=True
+                cwd=str(workspace),
+                check=True,
+                capture_output=True
             )
 
-            # Push branch to remote
+            # Push branch to remote with proper error handling
             logger.info(f"Pushing branch {branch_name}...")
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "push", "-u", "origin", branch_name],
-                check=True,
+                cwd=str(workspace),
+                check=False,  # Don't raise immediately - we want to capture stderr
                 capture_output=True,
+                text=True,  # Get string output instead of bytes
                 env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
             )
+
+            if result.returncode != 0:
+                # Capture actual git error message for debugging
+                error_details = result.stderr or result.stdout or "Unknown error"
+                logger.error(f"Git push failed (exit {result.returncode}): {error_details}")
+                raise Exception(f"Git push failed: {error_details}")
 
             # Create PR using GitHub API
             pr_body = f"""Automated implementation of issue #{issue_number}
