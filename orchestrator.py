@@ -662,6 +662,13 @@ Otherwise, create and RUN actual tests to verify they pass. Commit test files an
 
         # Get list of tracked files (excludes node_modules, .git, etc.)
         files = self.git.list_files()
+
+        # Safety check: If no files exist, reject immediately
+        if not files:
+            print("❌ No files to review - workflow failed to create any code")
+            result.errors.append("No files created by workflow")
+            return "REJECT"
+
         files_list = "\n".join(f"- {f}" for f in files)
 
         review_task = f"""Review the completed implementation against the original user story.

@@ -360,6 +360,23 @@ class ClaudeCodeAgent:
                 sanitized_stdout = self._sanitize_log_output(result.stdout) if result.stdout else ""
                 sanitized_stderr = self._sanitize_log_output(result.stderr) if result.stderr else ""
 
+                # Log full error to debug file for troubleshooting
+                debug_log = Path("logs") / "claude_errors.log"
+                debug_log.parent.mkdir(exist_ok=True)
+                with open(debug_log, "a") as f:
+                    import time
+                    f.write(f"\n{'='*60}\n")
+                    f.write(f"Agent: {self.role} | Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Return code: {result.returncode}\n")
+                    f.write(f"Workspace: {self.workspace}\n")
+                    f.write(f"Task (first 200 chars): {task[:200]}...\n")
+                    f.write(f"{'='*60}\n")
+                    f.write("STDOUT:\n")
+                    f.write(sanitized_stdout)
+                    f.write("\n\nSTDERR:\n")
+                    f.write(sanitized_stderr)
+                    f.write(f"\n{'='*60}\n\n")
+
                 return {
                     'success': False,
                     'error': f"Claude Code exited with code {result.returncode}",
