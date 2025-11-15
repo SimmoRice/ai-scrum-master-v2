@@ -69,9 +69,11 @@ update_container() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
-    # Stop service first
-    echo "  Stopping $service_name service..."
-    pct exec $id -- systemctl stop $service_name 2>/dev/null || true
+    # Stop service first (only if we're going to restart it)
+    if [ "$NO_RESTART" = false ]; then
+        echo "  Stopping $service_name service..."
+        pct exec $id -- systemctl stop $service_name 2>/dev/null || true
+    fi
 
     # Update repository
     echo "  Pulling latest code..."
