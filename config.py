@@ -38,7 +38,7 @@ AGENT_ROLES = {
 # Workflow settings
 WORKFLOW_CONFIG = {
     "max_revisions": 3,  # Maximum number of revision iterations
-    "auto_merge_on_approval": True,  # Automatically merge when PO approves
+    "auto_merge_on_approval": False,  # CHANGED: Set to False for distributed worker + PR workflow (v2.2+)
     "require_tests_passing": True,  # Require tests to pass before PO review
     "max_agent_retries": 2,  # Maximum retries per agent on transient failures
     "retry_backoff_seconds": 5,  # Initial backoff time between retries (exponential)
