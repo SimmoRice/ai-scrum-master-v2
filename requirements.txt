@@ -6,12 +6,13 @@ python-dotenv==1.0.0
 # AI/LLM dependencies
 anthropic>=0.18.0  # Claude API for issue clarification and task breakdown
 
-# HTTP client for distributed workers
+# HTTP client libraries
 requests>=2.31.0  # Worker-orchestrator communication
+aiohttp>=3.9.0  # Async HTTP client for GitHub API
 
 # Web framework for orchestrator service
 fastapi>=0.104.0  # Orchestrator REST API
-uvicorn>=0.24.0  # ASGI server for FastAPI
+uvicorn[standard]>=0.24.0  # ASGI server for FastAPI with websocket support
 pydantic>=2.0.0  # Data validation
 
 # Testing dependencies
