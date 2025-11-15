@@ -17,7 +17,30 @@ git commit -m "Initial commit"
 git push origin main
 ```
 
-### Step 2: Configure Cluster for Multi-Repo
+### Step 2: Setup Repository Labels
+
+Setup the required labels for the AI cluster workflow:
+
+```bash
+cd ~/Development/repos/ai-scrum-master-v2
+
+# Setup labels for calculator app
+python setup_repo_labels.py --repo your-username/calculator-app
+
+# Or setup for all monitored repos at once
+python setup_repo_labels.py --all
+
+# Include optional organization labels (priority, complexity, type)
+python setup_repo_labels.py --repo your-username/calculator-app --include-optional
+```
+
+This creates the required labels:
+- `ai-ready` - Issues ready for workers to pick up
+- `ai-in-progress` - Currently being worked on
+- `ai-completed` - Successfully completed
+- `ai-failed` - Worker failed to complete
+
+### Step 3: Configure Cluster for Multi-Repo
 
 Add the calculator repo to your cluster's monitored repositories:
 
@@ -38,7 +61,7 @@ pct exec 200 -- su - aimaster -c "
 pct exec 200 -- systemctl restart ai-orchestrator
 ```
 
-### Step 3: Break Down Project into Issues
+### Step 4: Break Down Project into Issues
 
 Use the `create_project_issues.py` script to automatically break down your project:
 
@@ -81,7 +104,7 @@ This will:
 3. Automatically add the `ai-ready` label
 4. The cluster will pick them up within 60 seconds
 
-### Step 4: Monitor Progress
+### Step 5: Monitor Progress
 
 Watch the cluster work on your issues:
 
@@ -109,7 +132,7 @@ gh issue list --repo your-username/calculator-app --label ai-in-progress
 gh issue list --repo your-username/calculator-app --label ai-completed --state all
 ```
 
-### Step 5: Review Pull Requests
+### Step 6: Review Pull Requests
 
 As workers complete tasks, they create pull requests:
 
