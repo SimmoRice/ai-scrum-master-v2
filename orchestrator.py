@@ -85,7 +85,7 @@ class Orchestrator:
     - Coordinate revisions
     """
 
-    def __init__(self, workspace_dir: Optional[Path] = None, verbose: bool = False, github: Any = None):
+    def __init__(self, workspace_dir: Optional[Path] = None, verbose: bool = False, github: Any = None, repository_url: Optional[str] = None):
         """
         Initialize the orchestrator
 
@@ -93,9 +93,11 @@ class Orchestrator:
             workspace_dir: Optional custom workspace directory
             verbose: If True, stream Claude Code output in real-time
             github: Optional GitHub integration object (prevents auto-merge when using PR workflow)
+            repository_url: Optional GitHub repository URL to clone (e.g., https://github.com/owner/repo.git)
         """
         self.verbose = verbose
         self.github = github  # Store GitHub integration to prevent auto-merge
+        self.repository_url = repository_url
 
         # Determine workspace and git root
         if workspace_dir:
@@ -143,8 +145,13 @@ class Orchestrator:
         print("="*60)
 
         if self.is_external_workspace:
-            # External workspace - initialize git if needed
-            self.git.initialize_repository()
+            # External workspace - clone repository or initialize new one
+            if self.repository_url:
+                # Clone the GitHub repository
+                self.git.clone_repository(self.repository_url)
+            else:
+                # Initialize a new git repository
+                self.git.initialize_repository()
         else:
             # Internal workspace - use existing project git repo
             print(f"✅ Using project git repository at {self.git.workspace}")

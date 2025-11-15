@@ -168,8 +168,15 @@ class DistributedWorker:
 
         logger.info(f"🚀 Starting workflow for issue #{issue_number}: {title}")
 
+        # Get repository URL from work item
+        repository = work_item.get("repository", "")
+        repo_url = f"https://github.com/{repository}.git" if repository else None
+
         # Initialize AI Scrum Master orchestrator
-        orchestrator = AIScrumOrchestrator(workspace_dir=workspace)
+        orchestrator = AIScrumOrchestrator(
+            workspace_dir=workspace,
+            repository_url=repo_url
+        )
 
         # Convert GitHub issue to user story
         user_story = self.format_user_story(work_item)

@@ -115,6 +115,52 @@ class GitManager:
             check=check
         )
 
+    def clone_repository(self, repo_url: str) -> None:
+        """
+        Clone a GitHub repository
+
+        Args:
+            repo_url: GitHub repository URL (https://github.com/owner/repo.git)
+        """
+        git_dir = self.workspace / ".git"
+        if git_dir.exists():
+            print(f"✅ Repository already cloned at {self.workspace}")
+            return
+
+        print(f"🔧 Cloning repository: {repo_url}")
+
+        # Clone into the workspace (need to clone to parent, then move contents)
+        import os
+        parent_dir = self.workspace.parent
+        temp_clone = parent_dir / f".temp_clone_{self.workspace.name}"
+
+        try:
+            # Clone to temp directory
+            subprocess.run(
+                ["git", "clone", repo_url, str(temp_clone)],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+            )
+
+            # Move contents to workspace
+            import shutil
+            for item in temp_clone.iterdir():
+                shutil.move(str(item), str(self.workspace / item.name))
+
+        finally:
+            # Clean up temp directory
+            if temp_clone.exists():
+                import shutil
+                shutil.rmtree(temp_clone)
+
+        # Configure git user
+        self._run_git("config", "user.name", GIT_CONFIG["user_name"])
+        self._run_git("config", "user.email", GIT_CONFIG["user_email"])
+
+        print(f"✅ Repository cloned to {self.workspace}")
+
     def initialize_repository(self) -> None:
         """
         Initialize a new git repository with proper configuration
