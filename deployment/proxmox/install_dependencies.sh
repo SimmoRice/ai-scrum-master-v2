@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install anthropic package on all workers
+# Install Python dependencies on all workers
 
 set -e
 
@@ -7,14 +7,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}Installing anthropic package on all workers...${NC}"
+echo -e "${YELLOW}Installing Python dependencies on all workers...${NC}"
 echo ""
 
 for id in 201 202 203 204 205; do
     echo -e "${YELLOW}Worker $id (ai-worker-$((id-200)))${NC}"
 
-    # Install anthropic package
-    pct exec $id -- su - aimaster -c "cd ai-scrum-master-v2 && pip3 install anthropic"
+    # Install all dependencies from requirements.txt
+    pct exec $id -- su - aimaster -c "cd ai-scrum-master-v2 && pip3 install -r requirements.txt"
 
     # Restart worker
     pct exec $id -- systemctl restart ai-worker
