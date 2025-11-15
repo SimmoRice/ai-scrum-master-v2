@@ -22,7 +22,7 @@ echo "Pulling latest code..."
 pct exec 200 -- su - aimaster -c "cd ai-scrum-master-v2 && git pull origin main"
 
 echo "Installing dependencies..."
-pct exec 200 -- su - aimaster -c "cd ai-scrum-master-v2 && pip3 install -r requirements.txt"
+pct exec 200 -- su - aimaster -c "cd ai-scrum-master-v2 && env/bin/pip install -r requirements.txt"
 
 echo "Restarting orchestrator..."
 pct exec 200 -- systemctl restart ai-orchestrator
@@ -42,7 +42,7 @@ for id in 201 202 203 204 205; do
     pct exec $id -- su - aimaster -c "cd ai-scrum-master-v2 && git pull origin main"
 
     echo "  Installing dependencies..."
-    pct exec $id -- su - aimaster -c "cd ai-scrum-master-v2 && pip3 install -r requirements.txt"
+    pct exec $id -- su - aimaster -c "cd ai-scrum-master-v2 && env/bin/pip install -r requirements.txt"
 
     echo "  Restarting worker..."
     pct exec $id -- systemctl restart ai-worker
