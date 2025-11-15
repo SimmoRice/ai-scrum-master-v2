@@ -41,20 +41,30 @@ def call_claude_for_task_breakdown(project_description: str) -> list:
 
         client = anthropic.Anthropic(api_key=api_key)
 
-        prompt = f"""Break down the following project into individual, concrete tasks that can be worked on independently.
+        prompt = f"""Break down the following project into individual, concrete tasks that can be worked on.
 
 Project: {project_description}
+
+IMPORTANT: Organize tasks into logical phases that must be completed in order:
+- Phase 1: Foundation tasks (setup, core infrastructure)
+- Phase 2: Core functionality
+- Phase 3: Additional features
+- Phase 4: Polish and refinement
 
 For each task, provide:
 1. A clear, actionable title
 2. A detailed description of what needs to be done
-3. Priority (High/Medium/Low)
-4. Estimated complexity (Simple/Medium/Complex)
-5. Any dependencies on other tasks
+3. Phase number (1, 2, 3, or 4) - which phase this task belongs to
+4. Phase name (e.g., "Foundation", "Core Features", "Advanced Features", "Polish")
+5. Priority (High/Medium/Low) - foundation tasks should be High
+6. Estimated complexity (Simple/Medium/Complex)
+7. Dependencies on other tasks (if any)
 
 Format your response as a JSON array of task objects with these fields:
 - title: string
 - description: string
+- phase: number (1-4)
+- phase_name: string
 - priority: string ("High" | "Medium" | "Low")
 - complexity: string ("Simple" | "Medium" | "Complex")
 - dependencies: string (comma-separated task titles or "None")
@@ -64,9 +74,20 @@ Example:
   {{
     "title": "Setup project structure",
     "description": "Create initial project directory...",
+    "phase": 1,
+    "phase_name": "Foundation",
     "priority": "High",
     "complexity": "Simple",
     "dependencies": "None"
+  }},
+  {{
+    "title": "Implement core feature",
+    "description": "Build the main functionality...",
+    "phase": 2,
+    "phase_name": "Core Features",
+    "priority": "High",
+    "complexity": "Medium",
+    "dependencies": "Setup project structure"
   }}
 ]
 
@@ -99,7 +120,7 @@ Return ONLY the JSON array, no other text."""
         sys.exit(1)
 
 
-def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True) -> bool:
+def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True, only_phase_1_ready: bool = True) -> bool:
     """
     Create a GitHub issue for a task
 
@@ -107,6 +128,7 @@ def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True) 
         repo: Repository in format "owner/repo"
         task: Task dictionary
         add_ai_ready_label: Whether to add 'ai-ready' label
+        only_phase_1_ready: If True, only Phase 1 tasks get ai-ready label
 
     Returns:
         True if successful
@@ -116,9 +138,12 @@ def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True) 
     priority = task.get('priority', 'Medium')
     complexity = task.get('complexity', 'Medium')
     dependencies = task.get('dependencies', 'None')
+    phase = task.get('phase', 1)
+    phase_name = task.get('phase_name', 'Unknown')
 
     # Create issue body
     body = f"{description}\n\n"
+    body += f"**Phase:** {phase} - {phase_name}\n"
     body += f"**Priority:** {priority}\n"
     body += f"**Complexity:** {complexity}\n"
     body += f"**Dependencies:** {dependencies}\n"
@@ -131,8 +156,31 @@ def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True) 
             "--body", body
         ]
 
+        # Build labels list
+        labels = []
+
+        # Add phase label
+        phase_label = f"phase:{phase}-{phase_name.lower().replace(' ', '-')}"
+        labels.append(phase_label)
+
+        # Add priority label
+        if priority:
+            labels.append(f"priority:{priority.lower()}")
+
+        # Add complexity label
+        if complexity:
+            labels.append(f"complexity:{complexity.lower()}")
+
+        # Add ai-ready only for Phase 1 (or all if disabled)
         if add_ai_ready_label:
-            cmd.extend(["--label", "ai-ready"])
+            if only_phase_1_ready and phase == 1:
+                labels.append("ai-ready")
+            elif not only_phase_1_ready:
+                labels.append("ai-ready")
+
+        # Add all labels
+        for label in labels:
+            cmd.extend(["--label", label])
 
         result = subprocess.run(
             cmd,
@@ -143,8 +191,10 @@ def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True) 
 
         if result.returncode == 0:
             issue_url = result.stdout.strip()
-            print(f"  ✅ Created: {title}")
+            ai_ready_marker = "🟢 ai-ready" if "ai-ready" in labels else "⏸️  waiting"
+            print(f"  ✅ Created: {title} [{ai_ready_marker}]")
             print(f"     {issue_url}")
+            print(f"     Labels: {', '.join(labels)}")
             return True
         else:
             print(f"  ❌ Failed: {title}")
@@ -177,6 +227,11 @@ def main():
         "--no-ai-ready",
         action="store_true",
         help="Don't add 'ai-ready' label (issues won't be picked up by cluster)"
+    )
+    parser.add_argument(
+        "--all-phases-ready",
+        action="store_true",
+        help="Mark all phases as ai-ready (default: only Phase 1)"
     )
 
     args = parser.parse_args()
@@ -218,12 +273,23 @@ def main():
     # Create GitHub issues
     print("📝 Creating GitHub issues...")
     add_ai_ready = not args.no_ai_ready
+    only_phase_1_ready = not args.all_phases_ready
 
     successful = 0
+    phase_1_count = 0
+    total_ready = 0
+
     for i, task in enumerate(tasks, 1):
         print(f"\n{i}/{len(tasks)}: {task['title']}")
-        if create_github_issue(args.repo, task, add_ai_ready):
+        phase = task.get('phase', 1)
+        if phase == 1:
+            phase_1_count += 1
+
+        if create_github_issue(args.repo, task, add_ai_ready, only_phase_1_ready):
             successful += 1
+            # Count how many are actually ai-ready
+            if add_ai_ready and (not only_phase_1_ready or phase == 1):
+                total_ready += 1
 
     print("")
     print("==========================================")
@@ -232,7 +298,17 @@ def main():
     print("")
 
     if add_ai_ready:
-        print("Issues are labeled 'ai-ready' and will be picked up by the cluster.")
+        if only_phase_1_ready:
+            print(f"📌 {total_ready} Phase 1 issues are labeled 'ai-ready' (will be picked up)")
+            print(f"⏸️  {successful - total_ready} Phase 2+ issues are waiting for Phase 1 completion")
+            print("")
+            print("To enable next phase after Phase 1 is complete:")
+            print(f"  gh issue list --repo {args.repo} --label phase:2-* --json number --jq '.[].number' | \\")
+            print(f"    xargs -I {{}} gh issue edit {{}} --repo {args.repo} --add-label ai-ready")
+        else:
+            print("All issues are labeled 'ai-ready' and will be picked up by the cluster.")
+
+        print("")
         print("Monitor progress:")
         print(f"  • Cluster status: curl http://192.168.100.200:8000/health")
         print(f"  • Queue status:   curl http://192.168.100.200:8000/queue")
