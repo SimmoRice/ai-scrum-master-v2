@@ -85,6 +85,11 @@ class WorkFailed(BaseModel):
     error: str
 
 
+class WorkRelease(BaseModel):
+    worker_id: str
+    issue_number: int
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
@@ -412,6 +417,33 @@ async def mark_work_failed(result: WorkFailed):
     return {"status": "acknowledged"}
 
 
+@app.post("/work/release")
+async def release_work(result: WorkRelease):
+    """
+    Worker releases work item back to queue (e.g., needs clarification)
+
+    Args:
+        result: Work release details
+    """
+    if not work_queue:
+        raise HTTPException(status_code=503, detail="Work queue not initialized")
+
+    logger.info(
+        f"Worker {result.worker_id} releasing issue #{result.issue_number}"
+    )
+
+    # Get work item to find repository
+    work_item = work_queue.items.get(result.issue_number)
+    repo = work_item.repository if work_item else None
+
+    # Release work back to queue (remove assignment)
+    work_queue.release_work(result.issue_number, result.worker_id)
+
+    logger.info(f"Issue #{result.issue_number} released back to queue")
+
+    return {"status": "released"}
+
+
 @app.get("/workers")
 async def list_workers():
     """List all workers and their status"""
@@ -546,12 +578,20 @@ async def poll_github_issues():
             for issue in issues:
                 repo = issue.get("repository")
                 issue_number = issue["number"]
+                issue_labels = issue.get("labels", [])
 
                 # Create unique identifier for issue (repo + issue number)
                 issue_key = f"{repo}#{issue_number}"
 
                 # Skip if already in queue
                 if work_queue.has_issue(issue_number):
+                    continue
+
+                # Skip issues that need clarification
+                if "needs-clarification" in issue_labels:
+                    logger.debug(
+                        f"Skipping issue {repo}#{issue_number}: needs clarification"
+                    )
                     continue
 
                 # Add to queue

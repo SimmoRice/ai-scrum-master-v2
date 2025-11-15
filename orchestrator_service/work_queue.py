@@ -207,6 +207,46 @@ class WorkQueue:
 
         return True
 
+    def release_work(
+        self,
+        issue_number: int,
+        worker_id: str,
+    ) -> bool:
+        """
+        Release work item back to queue without marking as failed
+        (e.g., for clarification)
+
+        Args:
+            issue_number: Issue number
+            worker_id: Worker releasing the work
+
+        Returns:
+            True if successful
+        """
+        if issue_number not in self.items:
+            logger.error(f"Issue #{issue_number} not found in queue")
+            return False
+
+        item = self.items[issue_number]
+
+        if item.assigned_to != worker_id:
+            logger.warning(
+                f"Worker {worker_id} tried to release issue #{issue_number} "
+                f"but it's assigned to {item.assigned_to}"
+            )
+            return False
+
+        # Release without incrementing retry count
+        item.status = "pending"
+        item.assigned_to = None
+        item.assigned_at = None
+
+        logger.info(
+            f"Issue #{issue_number} released by {worker_id} (needs clarification)"
+        )
+
+        return True
+
     def has_issue(self, issue_number: int) -> bool:
         """Check if issue is already in queue"""
         return issue_number in self.items

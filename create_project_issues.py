@@ -51,18 +51,29 @@ IMPORTANT: Organize tasks into logical phases that must be completed in order:
 - Phase 3: Additional features
 - Phase 4: Polish and refinement
 
-For each task, provide:
+For each task, create a DETAILED user story with:
+
 1. A clear, actionable title
-2. A detailed description of what needs to be done
-3. Phase number (1, 2, 3, or 4) - which phase this task belongs to
-4. Phase name (e.g., "Foundation", "Core Features", "Advanced Features", "Polish")
-5. Priority (High/Medium/Low) - foundation tasks should be High
-6. Estimated complexity (Simple/Medium/Complex)
-7. Dependencies on other tasks (if any)
+2. A comprehensive description including:
+   - User story format: "As a [role], I want [feature] so that [benefit]"
+   - Background/Context: Why this task is needed
+   - Technical approach: High-level implementation strategy
+   - Key implementation details: Specific technologies, patterns, or approaches to use
+3. Acceptance criteria (3-5 specific, testable criteria)
+4. Edge cases to consider (2-3 scenarios)
+5. Technical notes (any important considerations, constraints, or gotchas)
+6. Phase number (1, 2, 3, or 4) - which phase this task belongs to
+7. Phase name (e.g., "Foundation", "Core Features", "Advanced Features", "Polish")
+8. Priority (High/Medium/Low) - foundation tasks should be High
+9. Estimated complexity (Simple/Medium/Complex)
+10. Dependencies on other tasks (if any)
 
 Format your response as a JSON array of task objects with these fields:
 - title: string
-- description: string
+- description: string (comprehensive as described above)
+- acceptance_criteria: array of strings (3-5 specific criteria)
+- edge_cases: array of strings (2-3 scenarios)
+- technical_notes: string (important considerations)
 - phase: number (1-4)
 - phase_name: string
 - priority: string ("High" | "Medium" | "Low")
@@ -72,22 +83,26 @@ Format your response as a JSON array of task objects with these fields:
 Example:
 [
   {{
-    "title": "Setup project structure",
-    "description": "Create initial project directory...",
+    "title": "Setup Express.js backend with TypeScript",
+    "description": "As a developer, I want a properly configured Express.js backend with TypeScript so that we have a solid foundation for the API.\\n\\n**Background:** This is the foundation of our backend API. We need TypeScript for type safety and better developer experience.\\n\\n**Technical Approach:**\\n- Initialize Node.js project with TypeScript\\n- Configure Express.js with middleware\\n- Set up project structure (routes, controllers, models)\\n- Configure environment variables\\n\\n**Key Details:**\\n- Use Express 4.x with TypeScript 5.x\\n- Implement middleware: cors, helmet, express-validator\\n- Structure: src/routes, src/controllers, src/models, src/middleware\\n- Use dotenv for configuration",
+    "acceptance_criteria": [
+      "TypeScript compiles without errors",
+      "Express server starts on configured port",
+      "CORS is properly configured for frontend origin",
+      "Environment variables load from .env file",
+      "Basic health check endpoint returns 200 OK"
+    ],
+    "edge_cases": [
+      "Server fails to start if port is already in use",
+      "Environment variables missing - should show clear error",
+      "Invalid TypeScript configuration - should fail build"
+    ],
+    "technical_notes": "Use ts-node-dev for development hot reload. Ensure tsconfig.json has strict mode enabled. Configure nodemon to ignore build directory.",
     "phase": 1,
     "phase_name": "Foundation",
     "priority": "High",
-    "complexity": "Simple",
-    "dependencies": "None"
-  }},
-  {{
-    "title": "Implement core feature",
-    "description": "Build the main functionality...",
-    "phase": 2,
-    "phase_name": "Core Features",
-    "priority": "High",
     "complexity": "Medium",
-    "dependencies": "Setup project structure"
+    "dependencies": "None"
   }}
 ]
 
@@ -95,7 +110,7 @@ Return ONLY the JSON array, no other text."""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=4000,
+            max_tokens=8000,  # Increased for detailed user stories
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -174,9 +189,33 @@ def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True, 
     dependencies = task.get('dependencies', 'None')
     phase = task.get('phase', 1)
     phase_name = task.get('phase_name', 'Unknown')
+    acceptance_criteria = task.get('acceptance_criteria', [])
+    edge_cases = task.get('edge_cases', [])
+    technical_notes = task.get('technical_notes', '')
 
-    # Create issue body
+    # Create issue body with detailed formatting
     body = f"{description}\n\n"
+
+    # Add acceptance criteria
+    if acceptance_criteria:
+        body += "## Acceptance Criteria\n\n"
+        for i, criterion in enumerate(acceptance_criteria, 1):
+            body += f"{i}. {criterion}\n"
+        body += "\n"
+
+    # Add edge cases
+    if edge_cases:
+        body += "## Edge Cases to Consider\n\n"
+        for edge_case in edge_cases:
+            body += f"- {edge_case}\n"
+        body += "\n"
+
+    # Add technical notes
+    if technical_notes:
+        body += f"## Technical Notes\n\n{technical_notes}\n\n"
+
+    # Add metadata
+    body += "---\n\n"
     body += f"**Phase:** {phase} - {phase_name}\n"
     body += f"**Priority:** {priority}\n"
     body += f"**Complexity:** {complexity}\n"

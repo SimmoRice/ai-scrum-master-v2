@@ -142,6 +142,37 @@ class OrchestratorClient:
             logger.error(f"Failed to report failure: {e}")
             return False
 
+    def release_work(self, issue_number: int) -> bool:
+        """
+        Release work item back to queue (e.g., for clarification)
+
+        Args:
+            issue_number: GitHub issue number
+
+        Returns:
+            True if successfully released
+        """
+        if not self.worker_id:
+            raise ValueError("Worker ID not set. Call set_worker_id() first.")
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/work/release",
+                json={
+                    "worker_id": self.worker_id,
+                    "issue_number": issue_number,
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+
+            logger.info(f"Released work item for issue #{issue_number}")
+            return True
+
+        except requests.RequestException as e:
+            logger.error(f"Failed to release work: {e}")
+            return False
+
     def health_check(self) -> Optional[Dict[str, Any]]:
         """
         Check orchestrator health

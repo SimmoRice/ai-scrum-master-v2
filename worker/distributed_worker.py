@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from orchestrator_client import OrchestratorClient
 from orchestrator import Orchestrator as AIScrumOrchestrator
+from worker.clarification_agent import check_issue_for_clarification
 
 # Load environment
 load_dotenv()
@@ -79,17 +80,37 @@ class DistributedWorker:
                     continue
 
                 try:
-                    # 2. Setup isolated workspace
+                    # 2. Check if issue needs clarification (Sprint Planning Q&A)
+                    needs_clarification = check_issue_for_clarification(
+                        repository=work_item.get("repository", ""),
+                        issue_number=work_item["issue_number"],
+                        title=work_item["title"],
+                        body=work_item["body"],
+                        labels=work_item.get("labels", [])
+                    )
+
+                    if needs_clarification:
+                        # Issue needs clarification - mark as needing clarification
+                        # Orchestrator will not assign it again until label is fixed
+                        logger.info(
+                            f"⏸️  Issue #{work_item['issue_number']} needs clarification - "
+                            f"questions posted to GitHub"
+                        )
+                        # Release this work item back to queue
+                        self.client.release_work(work_item["issue_number"])
+                        continue
+
+                    # 3. Setup isolated workspace
                     workspace = self.setup_workspace(work_item)
 
-                    # 3. Run AI Scrum Master workflow
+                    # 4. Run AI Scrum Master workflow
                     result = self.execute_workflow(work_item, workspace)
 
                     if result.approved:
-                        # 4. Push to GitHub and create PR
+                        # 5. Push to GitHub and create PR
                         pr_url = self.create_pull_request(work_item, workspace)
 
-                        # 5. Report success
+                        # 6. Report success
                         self.client.mark_complete(work_item["issue_number"], pr_url)
 
                         logger.info(
