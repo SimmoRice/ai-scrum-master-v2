@@ -7,8 +7,12 @@ that a developer would ask during a sprint planning meeting.
 """
 
 import os
+import logging
 from typing import List, Dict, Any
 import anthropic
+from worker.github_api_client import GitHubAPIClient
+
+logger = logging.getLogger(__name__)
 
 
 class ClarificationAgent:
@@ -16,10 +20,17 @@ class ClarificationAgent:
     Agent that generates clarifying questions for issues
     """
 
-    def __init__(self):
+    def __init__(self, github_token: str):
+        """
+        Initialize clarification agent
+
+        Args:
+            github_token: GitHub personal access token
+        """
         self.client = anthropic.Anthropic(
             api_key=os.getenv("ANTHROPIC_API_KEY")
         )
+        self.github = GitHubAPIClient(github_token)
 
     def analyze_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -98,7 +109,7 @@ Return ONLY the JSON, no other text."""
         issue_number: int,
         questions: List[str],
         reasoning: str
-    ) -> None:
+    ) -> bool:
         """
         Post clarifying questions as GitHub issue comment
 
@@ -107,9 +118,10 @@ Return ONLY the JSON, no other text."""
             issue_number: Issue number
             questions: List of questions
             reasoning: Why clarification is needed
-        """
-        import subprocess
 
+        Returns:
+            True if successful, False otherwise
+        """
         # Format comment
         comment = "## ❓ Clarification Needed\n\n"
         comment += f"{reasoning}\n\n"
@@ -122,43 +134,30 @@ Return ONLY the JSON, no other text."""
         comment += "**Please answer these questions so development can proceed.**\n"
         comment += "Once answered, remove the `needs-clarification` label and re-add `ai-ready`.\n"
 
-        # Post comment using gh CLI
-        subprocess.run(
-            [
-                "gh", "issue", "comment", str(issue_number),
-                "--repo", repository,
-                "--body", comment
-            ],
-            check=True,
-            capture_output=True,
-            timeout=30
-        )
+        # Post comment using GitHub API
+        return self.github.add_issue_comment(repository, issue_number, comment)
 
     def add_clarification_label(
         self,
         repository: str,
         issue_number: int
-    ) -> None:
+    ) -> bool:
         """
         Add needs-clarification label and remove ai-ready
 
         Args:
             repository: Repository in format "owner/repo"
             issue_number: Issue number
-        """
-        import subprocess
 
-        # Add needs-clarification label, remove ai-ready
-        subprocess.run(
-            [
-                "gh", "issue", "edit", str(issue_number),
-                "--repo", repository,
-                "--add-label", "needs-clarification",
-                "--remove-label", "ai-ready"
-            ],
-            check=True,
-            capture_output=True,
-            timeout=30
+        Returns:
+            True if successful, False otherwise
+        """
+        # Update labels using GitHub API
+        return self.github.update_issue_labels(
+            repository,
+            issue_number,
+            add_labels=["needs-clarification"],
+            remove_labels=["ai-ready"]
         )
 
 
@@ -167,7 +166,8 @@ def check_issue_for_clarification(
     issue_number: int,
     title: str,
     body: str,
-    labels: List[str]
+    labels: List[str],
+    github_token: str
 ) -> bool:
     """
     Check if issue needs clarification and post questions if needed
@@ -178,36 +178,50 @@ def check_issue_for_clarification(
         title: Issue title
         body: Issue body
         labels: Issue labels
+        github_token: GitHub personal access token
 
     Returns:
         True if clarification needed, False otherwise
     """
-    agent = ClarificationAgent()
+    try:
+        agent = ClarificationAgent(github_token)
 
-    # Analyze issue
-    result = agent.analyze_issue({
-        "title": title,
-        "body": body,
-        "labels": labels
-    })
+        # Analyze issue
+        result = agent.analyze_issue({
+            "title": title,
+            "body": body,
+            "labels": labels
+        })
 
-    if result["needs_clarification"]:
-        print(f"❓ Issue #{issue_number} needs clarification")
-        print(f"   Reason: {result['reasoning']}")
-        print(f"   Questions: {len(result['questions'])}")
+        if result["needs_clarification"]:
+            logger.info(f"❓ Issue #{issue_number} needs clarification")
+            logger.info(f"   Reason: {result['reasoning']}")
+            logger.info(f"   Questions: {len(result['questions'])}")
 
-        # Post questions to GitHub
-        agent.post_questions_to_github(
-            repository,
-            issue_number,
-            result["questions"],
-            result["reasoning"]
-        )
+            # Post questions to GitHub
+            success = agent.post_questions_to_github(
+                repository,
+                issue_number,
+                result["questions"],
+                result["reasoning"]
+            )
 
-        # Update labels
-        agent.add_clarification_label(repository, issue_number)
+            if not success:
+                logger.error(f"Failed to post clarification questions to issue #{issue_number}")
+                return False
 
-        return True
-    else:
-        print(f"✅ Issue #{issue_number} is clear - proceeding with work")
+            # Update labels
+            success = agent.add_clarification_label(repository, issue_number)
+
+            if not success:
+                logger.error(f"Failed to update labels for issue #{issue_number}")
+                return False
+
+            return True
+        else:
+            logger.info(f"✅ Issue #{issue_number} is clear - proceeding with work")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error during clarification check: {e}")
         return False

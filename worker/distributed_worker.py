@@ -79,6 +79,9 @@ class DistributedWorker:
                     time.sleep(30)  # Wait before checking again
                     continue
 
+                # Initialize workspace variable for finally block
+                workspace = None
+
                 try:
                     # 2. Check if issue needs clarification (Sprint Planning Q&A)
                     needs_clarification = check_issue_for_clarification(
@@ -86,7 +89,8 @@ class DistributedWorker:
                         issue_number=work_item["issue_number"],
                         title=work_item["title"],
                         body=work_item["body"],
-                        labels=work_item.get("labels", [])
+                        labels=work_item.get("labels", []),
+                        github_token=self.github_token
                     )
 
                     if needs_clarification:
@@ -293,7 +297,7 @@ Repository: {work_item['repository']}
                 env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
             )
 
-            # Create PR using GitHub CLI
+            # Create PR using GitHub API
             pr_body = f"""Automated implementation of issue #{issue_number}
 
 ## Implementation Summary
@@ -314,28 +318,29 @@ Worker: {self.worker_id}
 """
 
             logger.info("Creating pull request...")
-            result = subprocess.run(
-                [
-                    "gh", "pr", "create",
-                    "--repo", repository,
-                    "--title", f"[AI] {title}",
-                    "--body", pr_body,
-                    "--head", branch_name,
-                    "--base", "main",
-                    "--label", "needs-review",
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                env={**os.environ, "GH_TOKEN": self.github_token}
+
+            # Import GitHub API client
+            from worker.github_api_client import GitHubAPIClient
+            github = GitHubAPIClient(self.github_token)
+
+            # Create PR with label
+            pr_url = github.create_pull_request(
+                repository=repository,
+                title=f"[AI] {title}",
+                body=pr_body,
+                head=branch_name,
+                base="main",
+                labels=["needs-review"]
             )
 
-            pr_url = result.stdout.strip()
+            if not pr_url:
+                raise Exception("Failed to create pull request via GitHub API")
+
             logger.info(f"✅ Pull request created with 'needs-review' label: {pr_url}")
             return pr_url
 
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Failed to create PR: {e.stderr}"
+        except Exception as e:
+            error_msg = f"Failed to create PR: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg)
 
