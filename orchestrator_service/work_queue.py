@@ -236,13 +236,12 @@ class WorkQueue:
             )
             return False
 
-        # Release without incrementing retry count
-        item.status = "pending"
-        item.assigned_to = None
-        item.assigned_at = None
+        # Remove from queue entirely (needs clarification)
+        # Orchestrator will re-add it only if it gets ai-ready label again
+        del self.items[issue_number]
 
         logger.info(
-            f"Issue #{issue_number} released by {worker_id} (needs clarification)"
+            f"Issue #{issue_number} removed from queue by {worker_id} (needs clarification)"
         )
 
         return True
