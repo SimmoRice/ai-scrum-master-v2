@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from credit_checker import InsufficientCreditsError
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -132,6 +136,22 @@ class DistributedWorker:
                         logger.warning(
                             f"❌ Issue #{work_item['issue_number']} rejected: {error}"
                         )
+
+                except InsufficientCreditsError as e:
+                    # Critical: Anthropic API credits too low
+                    # Release work back to queue and pause worker
+                    logger.error(
+                        f"💳 Critical: Anthropic API credits too low - pausing worker"
+                    )
+                    logger.error(str(e))
+
+                    # Release work back to queue (don't mark as failed)
+                    self.client.release_work(work_item["issue_number"])
+
+                    # Pause for 5 minutes before retrying
+                    logger.info("⏸️  Worker paused for 5 minutes - waiting for credits to be added")
+                    time.sleep(300)  # 5 minutes
+                    continue
 
                 except Exception as e:
                     # Report failure to orchestrator

@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 from config import CLAUDE_CLI_CONFIG
+from credit_checker import CreditChecker, InsufficientCreditsError
 
 
 class ClaudeCodeAgent:
@@ -359,6 +360,12 @@ class ClaudeCodeAgent:
                 # Security: Sanitize error output to prevent information disclosure
                 sanitized_stdout = self._sanitize_log_output(result.stdout) if result.stdout else ""
                 sanitized_stderr = self._sanitize_log_output(result.stderr) if result.stderr else ""
+
+                # Check if this is a low credit error
+                combined_output = sanitized_stdout + sanitized_stderr
+                if CreditChecker.is_low_credit_error(combined_output):
+                    # This is a critical error - raise exception to stop all work
+                    CreditChecker.handle_low_credit_error(combined_output)
 
                 # Log full error to debug file for troubleshooting
                 debug_log = Path("logs") / "claude_errors.log"
