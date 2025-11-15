@@ -84,25 +84,29 @@ class DistributedWorker:
 
                 try:
                     # 2. Check if issue needs clarification (Sprint Planning Q&A)
-                    needs_clarification = check_issue_for_clarification(
-                        repository=work_item.get("repository", ""),
-                        issue_number=work_item["issue_number"],
-                        title=work_item["title"],
-                        body=work_item["body"],
-                        labels=work_item.get("labels", []),
-                        github_token=self.github_token
-                    )
+                    # Can be disabled with SKIP_CLARIFICATION_CHECK=true
+                    skip_clarification = os.getenv("SKIP_CLARIFICATION_CHECK", "false").lower() == "true"
 
-                    if needs_clarification:
-                        # Issue needs clarification - mark as needing clarification
-                        # Orchestrator will not assign it again until label is fixed
-                        logger.info(
-                            f"⏸️  Issue #{work_item['issue_number']} needs clarification - "
-                            f"questions posted to GitHub"
+                    if not skip_clarification:
+                        needs_clarification = check_issue_for_clarification(
+                            repository=work_item.get("repository", ""),
+                            issue_number=work_item["issue_number"],
+                            title=work_item["title"],
+                            body=work_item["body"],
+                            labels=work_item.get("labels", []),
+                            github_token=self.github_token
                         )
-                        # Release this work item back to queue
-                        self.client.release_work(work_item["issue_number"])
-                        continue
+
+                        if needs_clarification:
+                            # Issue needs clarification - mark as needing clarification
+                            # Orchestrator will not assign it again until label is fixed
+                            logger.info(
+                                f"⏸️  Issue #{work_item['issue_number']} needs clarification - "
+                                f"questions posted to GitHub"
+                            )
+                            # Release this work item back to queue
+                            self.client.release_work(work_item["issue_number"])
+                            continue
 
                     # 3. Setup isolated workspace
                     workspace = self.setup_workspace(work_item)
