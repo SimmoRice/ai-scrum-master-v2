@@ -51,8 +51,40 @@ else
 fi
 echo ""
 
-# Step 2: Reset all issues from ai-in-progress to ai-ready
-echo -e "${YELLOW}Step 2: Resetting all issues to ai-ready...${NC}"
+# Step 2: Create phase labels if they don't exist
+echo -e "${YELLOW}Step 2: Creating phase labels...${NC}"
+
+create_label_if_not_exists() {
+    local repo=$1
+    local name=$2
+    local description=$3
+    local color=$4
+
+    # Check if label exists
+    if gh label list --repo $repo --json name --jq '.[].name' | grep -q "^${name}$"; then
+        echo "  Label '$name' already exists"
+    else
+        echo "  Creating label '$name'..."
+        gh label create "$name" --repo $repo --description "$description" --color "$color" || true
+    fi
+}
+
+# Create phase labels
+create_label_if_not_exists $REPO "phase:1-foundation" "Phase 1: Foundation & Backend" "0052CC"
+create_label_if_not_exists $REPO "phase:2-frontend" "Phase 2: Frontend Core" "1D76DB"
+create_label_if_not_exists $REPO "phase:3-features" "Phase 3: Advanced Features" "5319E7"
+create_label_if_not_exists $REPO "phase:4-polish" "Phase 4: Polish & Testing" "BFD4F2"
+
+# Create priority labels
+create_label_if_not_exists $REPO "priority:high" "High priority" "D93F0B"
+create_label_if_not_exists $REPO "priority:medium" "Medium priority" "FBCA04"
+create_label_if_not_exists $REPO "priority:low" "Low priority" "0E8A16"
+
+echo -e "${GREEN}✅ Labels created${NC}"
+echo ""
+
+# Step 3: Reset all issues from ai-in-progress to ai-ready
+echo -e "${YELLOW}Step 3: Resetting all issues to ai-ready...${NC}"
 gh issue list --repo $REPO --label ai-in-progress --json number --jq '.[].number' | while read num; do
     echo "  Resetting issue #$num..."
     gh issue edit $num --repo $REPO \
@@ -62,38 +94,38 @@ done
 echo -e "${GREEN}✅ All issues reset to ai-ready${NC}"
 echo ""
 
-# Step 3: Add phase labels
-echo -e "${YELLOW}Step 3: Adding phase labels...${NC}"
+# Step 4: Add phase labels
+echo -e "${YELLOW}Step 4: Adding phase labels to issues...${NC}"
 
 # Phase 1: Foundation & Backend (Issues 1-5)
 echo "  Phase 1: Foundation (issues 1-5)..."
 for num in 1 2 3 4 5; do
-    gh issue edit $num --repo $REPO --add-label "phase:1-foundation" --add-label "priority:high"
+    gh issue edit $num --repo $REPO --add-label "phase:1-foundation" --add-label "priority:high" 2>/dev/null || echo "    Warning: Could not update issue #$num"
 done
 
 # Phase 2: Frontend Core (Issues 6-9)
 echo "  Phase 2: Frontend (issues 6-9)..."
 for num in 6 7 8 9; do
-    gh issue edit $num --repo $REPO --add-label "phase:2-frontend" --add-label "priority:medium"
+    gh issue edit $num --repo $REPO --add-label "phase:2-frontend" --add-label "priority:medium" 2>/dev/null || echo "    Warning: Could not update issue #$num"
 done
 
 # Phase 3: Advanced Features (Issues 10-15)
 echo "  Phase 3: Features (issues 10-15)..."
 for num in 10 11 12 13 14 15; do
-    gh issue edit $num --repo $REPO --add-label "phase:3-features" --add-label "priority:medium"
+    gh issue edit $num --repo $REPO --add-label "phase:3-features" --add-label "priority:medium" 2>/dev/null || echo "    Warning: Could not update issue #$num"
 done
 
 # Phase 4: Polish & Testing (Issues 16-20)
 echo "  Phase 4: Polish (issues 16-20)..."
 for num in 16 17 18 19 20; do
-    gh issue edit $num --repo $REPO --add-label "phase:4-polish" --add-label "priority:low"
+    gh issue edit $num --repo $REPO --add-label "phase:4-polish" --add-label "priority:low" 2>/dev/null || echo "    Warning: Could not update issue #$num"
 done
 
 echo -e "${GREEN}✅ Phase labels added${NC}"
 echo ""
 
-# Step 4: Remove ai-ready from Phase 2-4, keep only Phase 1
-echo -e "${YELLOW}Step 4: Setting only Phase 1 as ai-ready...${NC}"
+# Step 5: Remove ai-ready from Phase 2-4, keep only Phase 1
+echo -e "${YELLOW}Step 5: Setting only Phase 1 as ai-ready...${NC}"
 for num in 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     echo "  Removing ai-ready from issue #$num..."
     gh issue edit $num --repo $REPO --remove-label ai-ready

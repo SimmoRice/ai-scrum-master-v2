@@ -120,6 +120,40 @@ Return ONLY the JSON array, no other text."""
         sys.exit(1)
 
 
+def ensure_label_exists(repo: str, name: str, description: str, color: str) -> None:
+    """
+    Ensure a label exists in the repository, create if it doesn't
+
+    Args:
+        repo: Repository in format "owner/repo"
+        name: Label name
+        description: Label description
+        color: Label color (hex without #)
+    """
+    try:
+        # Check if label exists
+        result = subprocess.run(
+            ["gh", "label", "list", "--repo", repo, "--json", "name", "--jq", ".[].name"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        existing_labels = result.stdout.strip().split('\n') if result.stdout.strip() else []
+
+        if name not in existing_labels:
+            # Create label
+            subprocess.run(
+                ["gh", "label", "create", name, "--repo", repo,
+                 "--description", description, "--color", color],
+                capture_output=True,
+                timeout=10
+            )
+    except Exception:
+        # Silently continue - label might already exist or we'll get error when adding to issue
+        pass
+
+
 def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True, only_phase_1_ready: bool = True) -> bool:
     """
     Create a GitHub issue for a task
@@ -159,17 +193,24 @@ def create_github_issue(repo: str, task: dict, add_ai_ready_label: bool = True, 
         # Build labels list
         labels = []
 
-        # Add phase label
+        # Add phase label (ensure it exists first)
         phase_label = f"phase:{phase}-{phase_name.lower().replace(' ', '-')}"
+        ensure_label_exists(repo, phase_label, f"Phase {phase}: {phase_name}", "0052CC")
         labels.append(phase_label)
 
-        # Add priority label
+        # Add priority label (ensure it exists first)
         if priority:
-            labels.append(f"priority:{priority.lower()}")
+            priority_label = f"priority:{priority.lower()}"
+            color_map = {"high": "D93F0B", "medium": "FBCA04", "low": "0E8A16"}
+            ensure_label_exists(repo, priority_label, f"{priority} priority", color_map.get(priority.lower(), "CCCCCC"))
+            labels.append(priority_label)
 
-        # Add complexity label
+        # Add complexity label (ensure it exists first)
         if complexity:
-            labels.append(f"complexity:{complexity.lower()}")
+            complexity_label = f"complexity:{complexity.lower()}"
+            color_map = {"simple": "0E8A16", "medium": "FBCA04", "complex": "D93F0B"}
+            ensure_label_exists(repo, complexity_label, f"{complexity} complexity", color_map.get(complexity.lower(), "CCCCCC"))
+            labels.append(complexity_label)
 
         # Add ai-ready only for Phase 1 (or all if disabled)
         if add_ai_ready_label:
