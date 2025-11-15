@@ -133,9 +133,10 @@ class MultiRepoManager:
 
         try:
             await client.add_issue_label(issue_number, label)
+            logger.info(f"Added label '{label}' to {repo}#{issue_number}")
             return True
         except Exception as e:
-            logger.error(f"Failed to add label to {repo}#{issue_number}: {e}")
+            logger.error(f"Failed to add label '{label}' to {repo}#{issue_number}: {e}")
             return False
 
     async def remove_issue_label(self, repo: str, issue_number: int, label: str) -> bool:
@@ -157,7 +158,8 @@ class MultiRepoManager:
 
         try:
             await client.remove_issue_label(issue_number, label)
+            logger.info(f"Removed label '{label}' from {repo}#{issue_number}")
             return True
         except Exception as e:
-            logger.error(f"Failed to remove label from {repo}#{issue_number}: {e}")
+            logger.error(f"Failed to remove label '{label}' from {repo}#{issue_number}: {e}")
             return False
