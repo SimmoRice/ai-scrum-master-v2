@@ -313,6 +313,44 @@ Repository: {work_item['repository']}
                 capture_output=True
             )
 
+            # Get current branch (workflow leaves us on tester-branch or similar)
+            current_branch_result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            current_branch = current_branch_result.stdout.strip()
+            logger.info(f"Current branch: {current_branch}")
+
+            # Create the feature branch from current branch if it doesn't exist
+            if current_branch != branch_name:
+                logger.info(f"Creating branch {branch_name} from {current_branch}...")
+                create_result = subprocess.run(
+                    ["git", "checkout", "-b", branch_name],
+                    cwd=str(workspace),
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+
+                if create_result.returncode != 0:
+                    # Branch might already exist, try to check it out
+                    checkout_result = subprocess.run(
+                        ["git", "checkout", branch_name],
+                        cwd=str(workspace),
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+                    if checkout_result.returncode != 0:
+                        error_msg = create_result.stderr or checkout_result.stderr or "Unknown error"
+                        logger.error(f"Failed to create/checkout branch {branch_name}: {error_msg}")
+                        raise Exception(f"Failed to create feature branch: {error_msg}")
+
+                logger.info(f"✅ On branch {branch_name}")
+
             # Push branch to remote with proper error handling
             logger.info(f"Pushing branch {branch_name}...")
             result = subprocess.run(

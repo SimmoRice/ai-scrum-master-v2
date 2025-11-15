@@ -291,6 +291,68 @@ This fix addresses:
 - Impossible to debug git authentication/network issues
 - Working directory pollution affecting subsequent operations
 
+## Additional Fix: Missing Feature Branch Creation
+
+### Problem Discovered
+
+After deploying the error handling fix, a new issue was revealed:
+```
+Git push failed (exit 1): error: src refspec ai-feature/issue-1 does not match any
+error: failed to push some refs to 'https://github.com/SimmoRice/taskmaster-app.git'
+```
+
+**Root cause:** The orchestrator workflow operates on internal branches (`architect-branch`, `security-branch`, `tester-branch`), but the worker tried to push a branch named `ai-feature/issue-X` that **was never created**.
+
+### The Fix (Lines 316-352)
+
+Added branch creation logic before git push:
+
+```python
+# Get current branch (workflow leaves us on tester-branch or similar)
+current_branch_result = subprocess.run(
+    ["git", "branch", "--show-current"],
+    cwd=str(workspace),
+    capture_output=True,
+    text=True,
+    check=True
+)
+current_branch = current_branch_result.stdout.strip()
+logger.info(f"Current branch: {current_branch}")
+
+# Create the feature branch from current branch if it doesn't exist
+if current_branch != branch_name:
+    logger.info(f"Creating branch {branch_name} from {current_branch}...")
+    create_result = subprocess.run(
+        ["git", "checkout", "-b", branch_name],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        check=False
+    )
+
+    if create_result.returncode != 0:
+        # Branch might already exist, try to check it out
+        checkout_result = subprocess.run(
+            ["git", "checkout", branch_name],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if checkout_result.returncode != 0:
+            error_msg = create_result.stderr or checkout_result.stderr or "Unknown error"
+            logger.error(f"Failed to create/checkout branch {branch_name}: {error_msg}")
+            raise Exception(f"Failed to create feature branch: {error_msg}")
+
+    logger.info(f"✅ On branch {branch_name}")
+```
+
+**Impact:**
+- ✅ Creates `ai-feature/issue-X` branch from workflow's final branch (usually `tester-branch`)
+- ✅ Handles case where branch already exists (checks it out instead)
+- ✅ Provides clear error messages if branch creation fails
+- ✅ Ensures the branch exists before attempting to push
+
 ## Future Improvements
 
 Consider adding:
