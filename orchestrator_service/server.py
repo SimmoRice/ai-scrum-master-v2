@@ -29,6 +29,7 @@ from orchestrator_service.multi_repo_manager import MultiRepoManager
 from orchestrator_service.work_queue import WorkQueue
 from orchestrator_service.worker_manager import WorkerManager
 from orchestrator_service.simple_worker_tracker import SimpleWorkerTracker
+from orchestrator_service.pr_review_tracker import PRReviewTracker
 
 # Load environment
 load_dotenv()
@@ -62,6 +63,7 @@ multi_repo_manager: Optional[MultiRepoManager] = None
 work_queue: Optional[WorkQueue] = None
 worker_manager: Optional[WorkerManager] = None
 worker_tracker: Optional[SimpleWorkerTracker] = None
+pr_tracker: Optional[PRReviewTracker] = None
 
 
 # Pydantic models
@@ -86,7 +88,7 @@ class WorkFailed(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    global github_client, multi_repo_manager, work_queue, worker_manager, worker_tracker
+    global github_client, multi_repo_manager, work_queue, worker_manager, worker_tracker, pr_tracker
 
     logger.info("Starting AI Scrum Master Orchestrator...")
 
@@ -120,6 +122,18 @@ async def startup_event():
     # Initialize work queue
     work_queue = WorkQueue()
     logger.info("Work queue initialized")
+
+    # Initialize PR review tracker
+    max_pending_prs = int(os.getenv("MAX_PENDING_PRS", "5"))
+    block_on_changes = os.getenv("BLOCK_ON_CHANGES_REQUESTED", "true").lower() == "true"
+    allow_parallel = os.getenv("ALLOW_PARALLEL_INDEPENDENT", "true").lower() == "true"
+
+    pr_tracker = PRReviewTracker(
+        max_pending_prs=max_pending_prs,
+        block_on_changes_requested=block_on_changes,
+        allow_parallel_independent=allow_parallel
+    )
+    logger.info("PR review tracker initialized")
 
     # Initialize worker manager or tracker
     worker_ips = os.getenv("WORKER_IPS", "").split(",")
@@ -200,6 +214,18 @@ async def health_check():
     else:
         github_info = {"connected": False}
 
+    # Get PR tracker status
+    pr_review_info = {}
+    if pr_tracker:
+        pr_status = pr_tracker.get_status()
+        pr_review_info = {
+            "pending_prs": pr_status["pending_prs"],
+            "changes_requested": pr_status["changes_requested"],
+            "approved": pr_status["approved"],
+            "queue_blocked": pr_status["queue_blocked"],
+            "blocking_reason": pr_status["blocking_reason"]
+        }
+
     return {
         "status": "healthy",
         "workers": {
@@ -212,6 +238,7 @@ async def health_check():
             "completed": work_queue.completed_count() if work_queue else 0,
         },
         "github": github_info,
+        "pr_review": pr_review_info,
     }
 
 
@@ -235,11 +262,21 @@ async def get_next_work(worker_id: str):
     elif worker_tracker:
         worker_tracker.update_activity(worker_id)
 
+    # Check if queue is blocked by pending PRs
+    if pr_tracker and pr_tracker.should_block_queue():
+        blocking_reason = pr_tracker.get_blocking_reason()
+        logger.info(f"Queue blocked for {worker_id}: {blocking_reason}")
+        return {
+            "work_available": False,
+            "blocked": True,
+            "reason": blocking_reason
+        }
+
     # Get next work item
     work_item = work_queue.get_next_work(worker_id)
 
     if not work_item:
-        return {"work_available": False}
+        return {"work_available": False, "blocked": False}
 
     # Update tracker with task assignment
     if worker_tracker:
@@ -287,13 +324,14 @@ async def mark_work_complete(result: WorkComplete):
         error=result.error
     )
 
-    # Update GitHub issue
+    # Update GitHub issue and register PR for review
     if result.success and repo:
         try:
             comment = (
                 f"✅ Implementation completed!\n\n"
                 f"Pull Request: {result.pr_url}\n\n"
-                f"Completed by: {result.worker_id}"
+                f"Completed by: {result.worker_id}\n\n"
+                f"⚠️ This PR requires human review before merging."
             )
 
             if multi_repo_manager:
@@ -304,6 +342,22 @@ async def mark_work_complete(result: WorkComplete):
                 await github_client.add_issue_comment(result.issue_number, comment)
                 await github_client.add_issue_label(result.issue_number, "ai-completed")
                 await github_client.remove_issue_label(result.issue_number, "ai-in-progress")
+
+            # Register PR with review tracker
+            if pr_tracker:
+                # Extract dependencies from work item (if available)
+                dependencies = set()
+                if work_item and hasattr(work_item, 'dependencies'):
+                    dependencies = work_item.dependencies
+
+                pr_tracker.add_pending_pr(
+                    issue_number=result.issue_number,
+                    pr_url=result.pr_url,
+                    repository=repo,
+                    worker_id=result.worker_id,
+                    dependencies=dependencies
+                )
+                logger.info(f"Registered PR for review tracking: {repo}#{result.issue_number}")
 
         except Exception as e:
             logger.error(f"Failed to update GitHub issue {repo}#{result.issue_number}: {e}")
@@ -399,6 +453,69 @@ async def queue_status():
         "in_progress": work_queue.get_in_progress_items(),
         "completed": work_queue.get_completed_items(limit=10),
     }
+
+
+@app.get("/pr-review/status")
+async def pr_review_status():
+    """Get PR review tracker status"""
+    if not pr_tracker:
+        raise HTTPException(status_code=503, detail="PR tracker not initialized")
+
+    status = pr_tracker.get_status()
+    pending_details = pr_tracker.get_pending_pr_details()
+
+    return {
+        **status,
+        "pending_pr_details": pending_details
+    }
+
+
+@app.post("/pr-review/approved/{issue_number}")
+async def pr_approved(issue_number: int):
+    """
+    Notify that a PR was approved
+
+    This can be called by review_prs.py script or GitHub webhook
+    """
+    if not pr_tracker:
+        raise HTTPException(status_code=503, detail="PR tracker not initialized")
+
+    pr_tracker.mark_approved(issue_number)
+    logger.info(f"PR #{issue_number} marked as approved")
+
+    return {"status": "acknowledged", "message": f"PR #{issue_number} approved"}
+
+
+@app.post("/pr-review/changes-requested/{issue_number}")
+async def pr_changes_requested(issue_number: int):
+    """
+    Notify that changes were requested on a PR
+
+    This can be called by review_prs.py script or GitHub webhook
+    """
+    if not pr_tracker:
+        raise HTTPException(status_code=503, detail="PR tracker not initialized")
+
+    pr_tracker.mark_changes_requested(issue_number)
+    logger.warning(f"Changes requested on PR #{issue_number}")
+
+    return {"status": "acknowledged", "message": f"Changes requested on PR #{issue_number}"}
+
+
+@app.post("/pr-review/merged/{issue_number}")
+async def pr_merged(issue_number: int):
+    """
+    Notify that a PR was merged
+
+    This can be called by review_prs.py script or GitHub webhook
+    """
+    if not pr_tracker:
+        raise HTTPException(status_code=503, detail="PR tracker not initialized")
+
+    pr_tracker.mark_merged(issue_number)
+    logger.info(f"PR #{issue_number} marked as merged")
+
+    return {"status": "acknowledged", "message": f"PR #{issue_number} merged"}
 
 
 # Background Tasks

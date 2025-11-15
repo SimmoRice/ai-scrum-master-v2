@@ -294,6 +294,7 @@ Worker: {self.worker_id}
                     "--body", pr_body,
                     "--head", branch_name,
                     "--base", "main",
+                    "--label", "needs-review",
                 ],
                 check=True,
                 capture_output=True,
@@ -302,7 +303,7 @@ Worker: {self.worker_id}
             )
 
             pr_url = result.stdout.strip()
-            logger.info(f"✅ Pull request created: {pr_url}")
+            logger.info(f"✅ Pull request created with 'needs-review' label: {pr_url}")
             return pr_url
 
         except subprocess.CalledProcessError as e:

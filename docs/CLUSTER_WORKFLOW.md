@@ -134,18 +134,46 @@ gh issue list --repo your-username/calculator-app --label ai-completed --state a
 
 ### Step 6: Review Pull Requests
 
-As workers complete tasks, they create pull requests:
+As workers complete tasks, they create pull requests with the `needs-review` label.
+
+#### Human Review Process
+
+All PRs require human approval before merging:
 
 ```bash
-# List PRs
-gh pr list --repo your-username/calculator-app
+# List PRs needing review
+cd ~/Development/repos/ai-scrum-master-v2
+python review_prs.py --repo your-username/calculator-app --list
 
-# Review a specific PR
-gh pr view 1 --repo your-username/calculator-app
+# Or check all monitored repos
+python review_prs.py --all --list
 
-# Merge a PR
-gh pr merge 1 --repo your-username/calculator-app --squash
+# Review a PR in your browser
+gh pr view 1 --repo your-username/calculator-app --web
+
+# Or check it out locally
+gh pr checkout 1 --repo your-username/calculator-app
+# Test it...
+
+# Approve a PR
+python review_prs.py --repo your-username/calculator-app --approve 1
+
+# Approve and merge in one step
+python review_prs.py --repo your-username/calculator-app --approve 1 --merge
+
+# Request changes
+python review_prs.py --repo your-username/calculator-app --request-changes 1 \
+  --comment "Please add unit tests"
+
+# Approve multiple PRs at once
+python review_prs.py --repo your-username/calculator-app --approve 1,2,3
 ```
+
+#### Review Labels
+
+- `needs-review` - PR awaiting human review (automatically added by workers)
+- `approved-for-merge` - Human approved, ready to merge
+- `changes-requested` - Human requested changes
 
 ## Advanced Workflows
 

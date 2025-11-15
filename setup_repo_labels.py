@@ -48,6 +48,21 @@ CLUSTER_LABELS = [
         "name": "ai-blocked",
         "description": "Issue is blocked and cannot be worked on",
         "color": "B60205"  # Dark red
+    },
+    {
+        "name": "needs-review",
+        "description": "PR needs human review before merging",
+        "color": "FFA500"  # Orange
+    },
+    {
+        "name": "approved-for-merge",
+        "description": "Human has approved PR for merging",
+        "color": "26A641"  # Bright green
+    },
+    {
+        "name": "changes-requested",
+        "description": "Human requested changes to PR",
+        "color": "CB2431"  # Bright red
     }
 ]
 
