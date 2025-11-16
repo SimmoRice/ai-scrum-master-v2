@@ -313,6 +313,17 @@ Repository: {work_item['repository']}
                 capture_output=True
             )
 
+            # Update remote URL to include authentication token
+            repository = work_item.get("repository", "")
+            authenticated_url = f"https://{self.github_token}@github.com/{repository}.git"
+            subprocess.run(
+                ["git", "remote", "set-url", "origin", authenticated_url],
+                cwd=str(workspace),
+                check=True,
+                capture_output=True
+            )
+            logger.info("✅ Git remote configured with authentication")
+
             # Get current branch (workflow leaves us on tester-branch or similar)
             current_branch_result = subprocess.run(
                 ["git", "branch", "--show-current"],
