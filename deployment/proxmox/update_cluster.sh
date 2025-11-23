@@ -81,8 +81,8 @@ update_container() {
         pct exec $id -- su - aimaster -c "
             cd ai-scrum-master-v2
             git fetch origin
+            git checkout main
             git reset --hard origin/main
-            git pull origin main
         " || {
             echo -e "${RED}❌ Failed to update repository on container $id${NC}"
             return 1

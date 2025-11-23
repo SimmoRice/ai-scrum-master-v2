@@ -183,21 +183,33 @@ def main():
         action='store_true',
         help='Stream Claude Code output in real-time (verbose mode)'
     )
+    parser.add_argument(
+        '--workspace', '-w',
+        type=str,
+        default=None,
+        help='Path to external workspace/repository to work on (default: ./workspace)'
+    )
 
     # Parse arguments
-    args = parser.parse_args()
+    cli_args = parser.parse_args()
 
     # Load environment variables
     load_dotenv()
 
     print_banner()
 
-    if args.verbose:
+    if cli_args.verbose:
         print("🔊 VERBOSE MODE ENABLED - Claude Code output will stream in real-time\n")
+
+    if cli_args.workspace:
+        print(f"📁 External workspace: {Path(cli_args.workspace).resolve()}\n")
 
     # Initialize orchestrator
     try:
-        orchestrator = Orchestrator(verbose=args.verbose)
+        orchestrator = Orchestrator(
+            workspace_dir=Path(cli_args.workspace) if cli_args.workspace else None,
+            verbose=cli_args.verbose
+        )
     except Exception as e:
         print(f"❌ Failed to initialize: {e}")
         print("\nMake sure:")
